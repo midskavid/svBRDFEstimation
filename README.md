@@ -1,2 +1,3 @@
 # svBRDFEstimation
-# THis is th eend
+
+Aim is to make this work on real images by training on synthetic images...

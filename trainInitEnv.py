@@ -75,12 +75,24 @@ imP3Batch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imag
 
 # Initial Network
 encoderInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
+
+# [kavidaya] In paper they mention sharing the weights between the two encoders.. I guess having two encoders is an overkill!
+encoderXInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
+encoderYInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
+decoderXInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
+decoderYInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
+
 albedoInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
 normalInit = nn.DataParallel(models.decoderInitial(mode=1), device_ids = opt.deviceIds)
 roughInit = nn.DataParallel(models.decoderInitial(mode=2), device_ids = opt.deviceIds)
 depthInit = nn.DataParallel(models.decoderInitial(mode=3), device_ids = opt.deviceIds)
 envInit = nn.DataParallel(models.envmapInitial(), device_ids = opt.deviceIds)
 
+# Discriminators
+
+discriminatorLatentInit = nn.DataParallel(models.DiscriminatorLatent(), device_ids = opt.deviceIds)
+discriminatorXInit = nn.DataParallel(models.DiscriminatorImg(), device_ids = opt.deviceIds)
+discriminatorYInit = nn.DataParallel(models.DiscriminatorImg(), device_ids = opt.deviceIds)
 # Refine Network
 encoderRefs, albedoRefs = [], []
 normalRefs, roughRefs = [], []
@@ -117,23 +129,41 @@ if opt.cuda:
     SHBatch = SHBatch.cuda(opt.gpuId)
     imP3Batch = imP3Batch.cuda(opt.gpuId)
 
-    encoderInit = encoderInit.cuda(opt.gpuId)
+    # encoderInit = encoderInit.cuda(opt.gpuId)
+    encoderXInit = encoderXInit.cuda(opt.gpuId)
+    encoderYInit = encoderYInit.cuda(opt.gpuId)
     albedoInit = albedoInit.cuda(opt.gpuId)
     normalInit = normalInit.cuda(opt.gpuId)
     roughInit = roughInit.cuda(opt.gpuId)
     depthInit = depthInit.cuda(opt.gpuId)
     envInit = envInit.cuda(opt.gpuId)
+    discriminatorLatentInit = discriminatorLatentInit.cuda(opt.gpuId)
+    discriminatorXInit = discriminatorXInit.cuda(opt.gpuId)
+    discriminatorYInit = discriminatorYInit.cuda(opt.gpuId)
 ####################################
 
 
 ####################################
 # Initial Optimizer
-opEncoderInit = optim.Adam(encoderInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+# opEncoderInit = optim.Adam(encoderInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+
+# [kavidaya] keeping the same stratergy for learning rate!!
+opEncoderXInit = optim.Adam(encoderXInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+opEncoderYInit = optim.Adam(encoderYInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+opDecoderXInit = optim.Adam(decoderXInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
+opDecoderYInit = optim.Adam(decoderYInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
+
 opAlbedoInit = optim.Adam(albedoInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
 opNormalInit = optim.Adam(normalInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
 opRoughInit = optim.Adam(roughInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
 opDepthInit = optim.Adam(depthInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
 opEnvInit = optim.Adam(envInit.parameters(), lr=2e-4, betas=(0.5, 0.999) )
+
+# [kavidaya] Decide a learning rate for the discriminators..
+opDiscriminatorLatentInit = optim.Adam(discriminatorLatentInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+opDiscriminatorXInit = optim.Adam(discriminatorXInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+opDiscriminatorYInit = optim.Adam(discriminatorYInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+
 #####################################
 
 
@@ -148,6 +178,10 @@ roughErrsNpList= np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 depthErrsNpList = np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 globalIllu1ErrsNpList= np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 envErrsNpList = np.ones([1, 1+opt.cascadeLevel], dtype = np.float32)
+
+# [kavidaya] have to change the dataloader so that it gives batch/2 real and batch/2 fake...
+# I guess just adding another key to the dictionary for realImages would suffice..
+# This would reduce the amount of code we change below..
 
 for epoch in list(range(opt.epochId+1, opt.nepoch)):
     trainingLog = open('{0}/trainingLog_{1}.txt'.format(opt.experiment, epoch), 'w')
@@ -192,13 +226,19 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         imP3Batch.data.copy_(imP3_cpu)
 
         # Clear the gradient in optimizer
-        opEncoderInit.zero_grad()
+        # opEncoderInit.zero_grad()
         opAlbedoInit.zero_grad()
         opNormalInit.zero_grad()
         opRoughInit.zero_grad()
         opDepthInit.zero_grad()
         opEnvInit.zero_grad()
-
+        opEncoderXInit.zero_grad()
+        opEncoderYInit.zero_grad()
+        opDecoderXInit.zero_grad()
+        opDecoderYInit.zero_grad()
+        opDiscriminatorLatentInit.zero_grad()
+        opDiscriminatorXInit.zero_grad()
+        opDiscriminatorYInit.zero_grad()
         ########################################################
         # Build the cascade network architecture #
         albedoPreds = []
@@ -215,12 +255,12 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
         # Initial Prediction
         inputInit = torch.cat([imBatch, imBgBatch, segBatch], dim=1)
-        x1, x2, x3, x4, x5, x = encoderInit(inputInit)
-        albedoPred = albedoInit(x1, x2, x3, x4, x5, x) * segBatch.expand_as(albedoBatch )
-        normalPred = normalInit(x1, x2, x3, x4, x5, x) * segBatch.expand_as(normalBatch )
-        roughPred = roughInit(x1, x2, x3, x4, x5, x) * segBatch.expand_as(roughBatch )
-        depthPred = depthInit(x1, x2, x3, x4, x5, x) * segBatch.expand_as(depthBatch )
-        SHPred = envInit(x)
+        x1, x2, x3, x4, x5, xSynth = encoderXInit(inputInit)
+        albedoPred = albedoInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(albedoBatch )
+        normalPred = normalInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(normalBatch )
+        roughPred = roughInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(roughBatch )
+        depthPred = depthInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(depthBatch )
+        SHPred = envInit(xSynth)
         SHPreds.append(SHPred)
         globalIllu1 = renderLayer.forward(albedoPred, normalPred,
                 roughPred, depthPred, segBatch)
@@ -230,6 +270,26 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         roughPreds.append(roughPred)
         depthPreds.append(depthPred)
         globalIllu1s.append(globalIllu1)
+
+        ########################################################
+
+        # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
+        _, _, _, _, _, xReal = encoderYInit(inputRealInit)
+        # Loss 1 :
+        idSynthetic = opDecoderXInit(xSynth)
+        idReal = opDecoderYInit(xReal)
+        lossQid = # L2 norm between synthetic images + L2 norm between real images 
+
+        # Loss 2 : 
+        predLatent = np.concatenate(xSynth, xReal)
+        # take synthetic as 0s and real as 1s
+        labels = np.ones(len(predLatent))
+        labels[0:len(predLatent)/2] = 0
+
+        predLabels = opDiscriminatorLatentInit(predLatent)
+        lossQz = # cross entropy loss between predLabels and labels..
+
+
 
         ########################################################
 
@@ -272,7 +332,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         totalErr.backward()
 
         # Update the network parameter
-        opEncoderInit.step()
+        opEncoderXInit.step()
         opAlbedoInit.step()
         opNormalInit.step()
         opRoughInit.step()

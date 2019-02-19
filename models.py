@@ -589,3 +589,21 @@ class renderingLayer():
         color = diffuseBatch * radiance * segBatch.expand_as(diffusePred)
         return torch.clamp(color, 0, 1)
 
+
+class DiscriminatorLatent(nn.Module) :
+    def __init__(self) :
+        super(DiscriminatorLatent, self).__init__()
+        # Define Arcitecture of Discriminator..
+
+    def forward(self, x) :
+        #define forward pass..
+        return x
+
+class DiscriminatorImg(nn.Module) :
+    def __init__(self) :
+        super(DiscriminatorImg, self).__init__()
+        # Define Arcitecture of Discriminator..
+
+    def forward(self, x) :
+        #define forward pass..
+        return x
