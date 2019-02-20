@@ -198,6 +198,9 @@ depthErrsNpList = np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 globalIllu1ErrsNpList= np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 envErrsNpList = np.ones([1, 1+opt.cascadeLevel], dtype = np.float32)
 
+
+lossMSE = torch.nn.MSELoss()
+lossCEntropy = torch.nn.CrossEntropyLoss()
 # [kavidaya] have to change the dataloader so that it gives batch/2 real and batch/2 fake...
 # I guess just adding another key to the dictionary for realImages would suffice..
 # This would reduce the amount of code we change below..
@@ -295,9 +298,9 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
         _, _, _, _, _, xReal = encoderYInit(inputRealInit)
         # Loss 1 :
-        idSynthetic = opDecoderXInit(xSynth)
-        idReal = opDecoderYInit(xReal)
-        lossQid = # L2 norm between synthetic images + L2 norm between real images 
+        idSynthetic = opDecoderXInit(xSynth)[5]
+        idReal = opDecoderYInit(xReal)[5]
+        lossQid = lossMSE(xSynth, inputInit,reduce=True) + lossMSE(xReal, inputRealInit, reduce=True)# L2 norm between synthetic images + L2 norm between real images 
 
         # Loss 2 : 
         predLatent = np.concatenate(xSynth, xReal)
@@ -306,20 +309,23 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         labels[0:len(predLatent)/2] = 0
 
         predLabels = opDiscriminatorLatentInit(predLatent)
-        lossQz = # cross entropy loss between predLabels and labels..
+        lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
 
         # Loss 3 : 
-        predTransX = opDiscriminatorXInit(opDecoderYInit(xSynth))
-        predTransY = opDiscriminatorYInit(opDecoderXInit(xReal))
-        lossQtr = # cross entropy loss...
-        #[kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
+        predTransX = opDiscriminatorYInit(opDecoderYInit(xSynth))
+        predTransY = opDiscriminatorXInit(opDecoderXInit(xReal))
+        lossQtr = lossCEntropy(predTransX, torch.zeros(predTransX.size())) + lossCEntropy(predTransY, torch.zeros(predTransY.size())) # cross entropy loss...
+
+        # [kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
         predActualX = opDiscriminatorXInit(inputInit)
         predActualY = opDiscriminatorYInit(inputRealInit)
-        lossQtrDisc = #
+        out = torch.zeros(torch.cat(predTransX, predActualX).size())
+        out[0:len(predTransX)] = 1
+        lossQtrDisc = lossCEntropy(torch.cat(predActualX, predTransX), out) + lossCEntropy(torch.cat(predActualY, predTransY), out) #
 
         # Loss 4 : 
-        lossQcyc = torch.nn.MSELoss(opDecoderXInit(opEncoderYInit(opDecoderYInit(xSynth))[5]),reduce=True) + \
-                                    torch.nn.MSELoss(opDecoderXInit(opEncoderXInit(opDecoderXInit(xReal))[5]),reduce=True)
+        lossQcyc = lossMSE(opDecoderXInit(opEncoderYInit(opDecoderYInit(xSynth))[5]),reduce=True) + \
+                                    lossMSE(opDecoderXInit(opEncoderXInit(opDecoderXInit(xReal))[5]),reduce=True)
 
         # Loss 5 :
 
@@ -409,14 +415,32 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         #totalErr.backward()
 
         # DA losses////
+        # [kavidaya] handle lossQtrDisc.. also take care of step...
+        lossQtrDisc.backward()
+        opDiscriminatorXInit.step()
+        opDiscriminatorYInit.step()
+
+
+        # Clear the gradient in optimizer
+        # opEncoderInit.zero_grad()
+        opAlbedoInit.zero_grad()
+        opNormalInit.zero_grad()
+        opRoughInit.zero_grad()
+        opDepthInit.zero_grad()
+        opEnvInit.zero_grad()
+        opEncoderXInit.zero_grad()
+        opEncoderYInit.zero_grad()
+        opDecoderXInit.zero_grad()
+        opDecoderYInit.zero_grad()
+        opDiscriminatorLatentInit.zero_grad()
+        opDiscriminatorXInit.zero_grad()
+        opDiscriminatorYInit.zero_grad()
+        ########################################################
+
+
+
         totalErr = lamC*totalErrOrig + lamZ*lossQz + lamTr*lossQtr + lamId*lossQid + lamCyc*lossQcyc + lamTrc*totalErrTrc
         totalErr.backward()
-
-        # [kavidaya] handle lossQtrDisc.. also take care of step...
-
-        opDiscriminatorLatentInit.step()
-
-
 
         # Update the network parameter
         opEncoderXInit.step()
@@ -424,8 +448,6 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         opDecoderXInit.step()
         opDecoderYInit.step()
         opDiscriminatorLatentInit.step()
-        opDiscriminatorXInit.step()
-        opDiscriminatorYInit.step()
         opAlbedoInit.step()
         opNormalInit.step()
         opRoughInit.step()
