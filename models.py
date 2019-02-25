@@ -590,6 +590,112 @@ class renderingLayer():
         return torch.clamp(color, 0, 1)
 
 
+
+class encoderInitialXDA(nn.Module):
+    def __init__(self):
+        super(encoderInitial, self).__init__()
+        # Input should be segmentation, image with environment map, image with point light + environment map
+        self.conv1 = nn.Conv2d(in_channels=7, out_channels=32, kernel_size=6, stride=2, padding=2, bias=False)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(128)
+        self.conv4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn4 = nn.BatchNorm2d(256)
+        self.conv5 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn5 = nn.BatchNorm2d(256)
+        self.conv6 = nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn6 = nn.BatchNorm2d(512)
+
+    def forward(self, x):
+        x1 = F.relu(self.bn1(self.conv1(x)), True )
+        x2 = F.relu(self.bn2(self.conv2(x1)), True )
+        x3 = F.relu(self.bn3(self.conv3(x2)), True )
+        x4 = F.relu(self.bn4(self.conv4(x3)), True )
+        x5 = F.relu(self.bn5(self.conv5(x4)), True )
+        x = F.relu(self.bn6(self.conv6(x5)), True )
+        return x1, x2, x3, x4, x5, x
+
+
+
+
+class encoderInitialYDA(nn.Module):
+    def __init__(self):
+        super(encoderInitial, self).__init__()
+        # Input should be segmentation, image
+        self.conv1 = nn.Conv2d(in_channels=4, out_channels=32, kernel_size=6, stride=2, padding=2, bias=False)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(128)
+        self.conv4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn4 = nn.BatchNorm2d(256)
+        self.conv5 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn5 = nn.BatchNorm2d(256)
+        self.conv6 = nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn6 = nn.BatchNorm2d(512)
+
+    def forward(self, x):
+        x1 = F.relu(self.bn1(self.conv1(x)), True )
+        x2 = F.relu(self.bn2(self.conv2(x1)), True )
+        x3 = F.relu(self.bn3(self.conv3(x2)), True )
+        x4 = F.relu(self.bn4(self.conv4(x3)), True )
+        x5 = F.relu(self.bn5(self.conv5(x4)), True )
+        x = F.relu(self.bn6(self.conv6(x5)), True )
+        return x1, x2, x3, x4, x5, x
+
+
+class decoderInitialDA(nn.Module):
+    def __init__(self, mode=0):
+        super(decoderInitial, self).__init__()
+        # branch for normal prediction
+        self.dconv0 = nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dbn0 = nn.BatchNorm2d(256)
+        self.dconv1 = nn.ConvTranspose2d(in_channels=256, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dbn1 = nn.BatchNorm2d(256)
+        self.dconv2 = nn.ConvTranspose2d(in_channels=256, out_channels=128, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dbn2 = nn.BatchNorm2d(128)
+        self.dconv3 = nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dbn3 = nn.BatchNorm2d(64)
+        self.dconv4 = nn.ConvTranspose2d(in_channels=64,  out_channels=32, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dbn4 = nn.BatchNorm2d(32)
+        self.dconv5 = nn.ConvTranspose2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dbn5 = nn.BatchNorm2d(64)
+
+        self.convFinal = nn.Conv2d(in_channels=64, out_channels = 3, kernel_size = 5, stride=1, padding=2, bias=True)
+        # Mode 0: Albedo
+        # Mode 1: Normal
+        # Mode 2: Roughness
+        # Mode 3: Depth
+        self.mode = mode
+        assert( mode >= 0 and mode <= 3)
+
+    def forward(self, x):
+        x_d1 = F.relu( self.dbn0(self.dconv0(x) ), True)
+        x_d2 = F.relu( self.dbn1(self.dconv1(x_d1) ), True)
+        x_d3 = F.relu( self.dbn2(self.dconv2(x_d2) ), True)
+        x_d4 = F.relu( self.dbn3(self.dconv3(x_d3) ), True)
+        x_d5 = F.relu( self.dbn4(self.dconv4(x_d4) ), True)
+        x_d6 = F.relu( self.dbn5(self.dconv5(x_d5) ), True)
+        x_orig  = F.tanh( self.convFinal(x_d6) )
+        if self.mode == 0:
+            x_out = x_orig
+        elif self.mode == 1:
+            norm = torch.sqrt(torch.sum(x_orig * x_orig, dim=1).unsqueeze(1) ).expand_as(x_orig);
+            x_out = x_orig / norm
+        elif self.mode == 2:
+            x_out = torch.mean(x_orig, dim=1).unsqueeze(1)
+        elif self.mode == 3:
+            x_out = torch.mean(x_orig, dim=1).unsqueeze(1)
+            x_out = 1 / (0.4 * (x_out + 1) + 0.25 )
+        return x_out
+
+
+
+
+
 class DiscriminatorLatent(nn.Module) :
     def __init__(self) :
         super(DiscriminatorLatent, self).__init__()

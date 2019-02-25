@@ -86,15 +86,17 @@ depthBatch = Variable(torch.FloatTensor(opt.batchSize, 1, opt.imageSize, opt.ima
 imBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 imBgBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 SHBatch = Variable(torch.FloatTensor(opt.batchSize, 3, 9) )
+imRealBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
+imRealBgBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 
 # Initial Network
-encoderInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
+# encoderInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
 
 # [kavidaya] In paper they mention sharing the weights between the two encoders.. I guess having two encoders is an overkill!
-encoderXInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
-encoderYInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
-decoderXInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
-decoderYInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
+encoderXInit = nn.DataParallel(models.encoderInitialXDA(), device_ids = opt.deviceIds)
+encoderYInit = nn.DataParallel(models.encoderInitialYDA(), device_ids = opt.deviceIds)
+decoderXInit = nn.DataParallel(models.decoderInitialDA(mode=0), device_ids = opt.deviceIds)
+decoderYInit = nn.DataParallel(models.decoderInitialDA(mode=0), device_ids = opt.deviceIds)
 
 albedoInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
 normalInit = nn.DataParallel(models.decoderInitial(mode=1), device_ids = opt.deviceIds)
@@ -115,17 +117,17 @@ depthRefs = []
 renderLayer = models.renderingLayer(gpuId = opt.gpuId, isCuda = opt.cuda)
 
 scale = 1.0
-if opt.isRefine == True:
-    if opt.modelRoot is None:
-        opt.modelRoot = opt.experiment
-    encoderInit.load_state_dict(torch.load('{0}/encoderInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-    albedoInit.load_state_dict(torch.load('{0}/albedoInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-    normalInit.load_state_dict(torch.load('{0}/normalInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-    roughInit.load_state_dict(torch.load('{0}/roughInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-    depthInit.load_state_dict(torch.load('{0}/depthInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-    envInit.load_state_dict(torch.load('{0}/envInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
+# if opt.isRefine == True:
+#     if opt.modelRoot is None:
+#         opt.modelRoot = opt.experiment
+#     encoderInit.load_state_dict(torch.load('{0}/encoderInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
+#     albedoInit.load_state_dict(torch.load('{0}/albedoInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
+#     normalInit.load_state_dict(torch.load('{0}/normalInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
+#     roughInit.load_state_dict(torch.load('{0}/roughInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
+#     depthInit.load_state_dict(torch.load('{0}/depthInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
+#     envInit.load_state_dict(torch.load('{0}/envInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
 
-    scale = 1.0 / np.power(2.0, int( (opt.epochId + 1) / 2) )
+#     scale = 1.0 / np.power(2.0, int( (opt.epochId + 1) / 2) )
 
 
 
@@ -140,6 +142,9 @@ if opt.cuda:
     segBatch = segBatch.cuda(opt.gpuId)
     imBatch = imBatch.cuda(opt.gpuId)
     imBgBatch = imBgBatch.cuda(opt.gpuId)
+    imRealBatch = imRealBatch.cuda(opt.gpuId)
+    imRealBgBatch = imRealBgBatch.cuda(opt.gpuId)
+
     SHBatch = SHBatch.cuda(opt.gpuId)
 
     # encoderInit = encoderInit.cuda(opt.gpuId)
@@ -161,6 +166,10 @@ if opt.cuda:
 # opEncoderInit = optim.Adam(encoderInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
 
 # [kavidaya] keeping the same stratergy for learning rate!!
+# [kavidaya] since the skip connections are helpful in predicting albedo etc, keeping them intact...
+# [kavidaya] It is only from decoders x and y that these connections are removed.
+# [kavidaya] They would still work with the decoder h..
+
 opEncoderXInit = optim.Adam(encoderXInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
 opEncoderYInit = optim.Adam(encoderYInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
 opDecoderXInit = optim.Adam(decoderXInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
@@ -216,6 +225,10 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         seg_cpu = dataBatch['seg']
         segBatch.data.resize_(seg_cpu.size() )
         segBatch.data.copy_(seg_cpu )
+        segReal_cpu = dataBatch['realImageMask']
+        segRealBatch.data.resize_(segReal_cpu.size() )
+        segRealBatch.data.copy_(segReal_cpu )
+
         depth_cpu = dataBatch['depth']
         depthBatch.data.resize_(depth_cpu.size() )
         depthBatch.data.copy_(depth_cpu )
@@ -224,6 +237,10 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         im_cpu = (dataBatch['imP'] + dataBatch['imE'] + 1) * seg_cpu.expand_as(normal_cpu)
         imBatch.data.resize_(im_cpu.shape )
         imBatch.data.copy_(im_cpu )
+        imReal_cpu = dataBatch['realImage']
+        imRealBatch.data.resize_(imReal_cpu.shape )
+        imRealBatch.data.copy_(imReal_cpu )
+
 
         imBg_cpu = 0.5*(dataBatch['imP'] + 1) * seg_cpu.expand_as(normal_cpu ) \
                 + 0.5*(dataBatch['imEbg'] + 1)
@@ -287,6 +304,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         ########################################################
 
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
+        inputInit = torch.cat([imRealBatch, segRealBatch], dim=1)
         _, _, _, _, _, xReal = encoderYInit(inputRealInit)
         # Loss 1 :
         idSynthetic = opDecoderXInit(xSynth)[5]
@@ -547,8 +565,8 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
     # Update the training rate
     if (epoch + 1) % 2 == 0:
-        for param_group in opEncoderInit.param_groups:
-            param_group['lr'] /= 2
+        # for param_group in opEncoderInit.param_groups:
+        #     param_group['lr'] /= 2
         for param_group in opAlbedoInit.param_groups:
             param_group['lr'] /= 2
         for param_group in opNormalInit.param_groups:
@@ -569,7 +587,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
     np.save('{0}/envErrs_{1}.npy'.format(opt.experiment, epoch), envErrsNpList )
 
     # save the models
-    torch.save(encoderInit.state_dict(), '{0}/encoderInit_{1}.pth'.format(opt.experiment, epoch) )
+    #torch.save(encoderInit.state_dict(), '{0}/encoderInit_{1}.pth'.format(opt.experiment, epoch) )
     torch.save(albedoInit.state_dict(), '{0}/albedoInit_{1}.pth'.format(opt.experiment, epoch) )
     torch.save(normalInit.state_dict(), '{0}/normalInit_{1}.pth'.format(opt.experiment, epoch) )
     torch.save(roughInit.state_dict(), '{0}/roughInit_{1}.pth'.format(opt.experiment, epoch) )
