@@ -18,7 +18,6 @@ class BatchLoader(Dataset):
         shapeList = glob.glob(osp.join(dataRoot, 'Shape__*') )
         shapeList = sorted(shapeList)
 
-        self.cascade = cascade
 
         self.albedoList = []
         self.F0List = []
@@ -38,9 +37,6 @@ class BatchLoader(Dataset):
         # Rendered Image
         self.imPList = [x.replace('albedo', 'imgPoint') for x in self.albedoList]
         self.imEList = [x.replace('albedo', 'imgEnv') for x in self.albedoList]
-        self.imP1List = [x.replace('albedo', 'imgPoint_b1') for x in self.albedoList]
-        self.imP2List = [x.replace('albedo', 'imgPoint_b2') for x in self.albedoList]
-        self.imP3List = [x.replace('albedo', 'imgPoint_b3') for x in self.albedoList]
 
         # Geometry
         self.depthList = [x.replace('albedo', 'depth').replace('png', 'dat') for x in self.albedoList]
@@ -61,6 +57,10 @@ class BatchLoader(Dataset):
         if isRandom:
             random.shuffle(self.perm)
 
+        # Real Images
+        self.realImageMaskNames = glob.glob(osp.join(osp.join(dataRoot,'RealImages'), '*_mask.png'))
+        self.realImageNames = [x.replace('_mask', '') for x in self.realImageMaskNames]
+        self.permReal = np.random.randint(0,len(self.realImageNames),len(self.perm))
 
     def __len__(self):
         return len(self.perm)
@@ -92,13 +92,6 @@ class BatchLoader(Dataset):
         imE = self.loadImage(self.imEList[self.perm[ind] ], isGama = True)
         imEbg = imE.copy()
         imE = imE * seg
-        imP1 = self.loadImage(self.imP1List[self.perm[ind] ], isGama = True)
-        imP1 = imP1 * seg
-        imP2 = self.loadImage(self.imP2List[self.perm[ind] ], isGama = True)
-        imP2 = imP2 * seg
-        imP3 = self.loadImage(self.imP3List[self.perm[ind] ], isGama = True)
-        imP3 = imP3 * seg
-
 
         with open(self.depthList[self.perm[ind] ], 'rb') as f:
             byte = f.read()
@@ -125,9 +118,6 @@ class BatchLoader(Dataset):
         # Scale the input
         scalePoint = 1.7
         imP = (imP + 1) * scalePoint - 1
-        imP1 = (imP1 + 1) * scalePoint - 1
-        imP2 = (imP2 + 1) * scalePoint - 1
-        imP3 = (imP3 + 1) * scalePoint - 1
 
         # Scale the Environment
         scaleEnv = 0.5
@@ -136,105 +126,28 @@ class BatchLoader(Dataset):
         SH = SH * scaleEnv
 
         imP = np.clip(imP, -1, 1)
-        imP1 = np.clip(imP1, -1, 1)
-        imP2 = np.clip(imP2, -1, 1)
-        imP3 = np.clip(imP3, -1, 1)
         imE = np.clip(imE, -1, 1)
 
-        if self.cascade is not None:
+        imReal = self.loadImage(self.realImageNames[self.permReal[ind] ], isGama = True)
+        segReal = 0.5 * self.loadImage(self.realImageMaskNames[self.permReal[ind] ] ) + 0.5
+        segReal = (segReal[0, :, :] > 0.999999).astype(dtype = np.int)
+        segReal = ndimage.binary_erosion(segReal, structure = np.ones( (2, 2) ) ).astype(dtype = np.float32 )
+        segReal = segReal[np.newaxis, :, :]
 
-            if self.isPoint == False:
-                albedoName = self.albedoList[self.perm[ind] ][0:-4] + '_c{0}.png'.format(self.cascade)
-                normalName = self.normalList[self.perm[ind] ][0:-4] + '_c{0}.png'.format(self.cascade)
-                roughName = self.roughList[self.perm[ind] ][0:-4] + '_c{0}.png'.format(self.cascade)
-                imP2Name = self.imP2List[self.perm[ind] ][0:-4] + '_c{0}.png'.format(self.cascade)
-                imP3Name = self.imP3List[self.perm[ind] ][0:-4] + '_c{0}.png'.format(self.cascade)
 
-                depthName = self.depthList[self.perm[ind] ][0:-4] + '_c{0}.npy'.format(self.cascade)
-                envName = depthName.replace('depth', 'env')
-
-                albedoPred = self.loadImage(albedoName )
-                normalPred = self.loadImage(normalName )
-                normalPred = normalPred / np.sqrt(np.maximum(np.sum(normalPred * normalPred, axis=0), 1e-5) )[np.newaxis, :]
-                roughPred = self.loadImage(roughName )[0:1, :, :]
-                imP2Pred = self.loadImage(imP2Name, isGama = True )
-                imP3Pred = self.loadImage(imP3Name, isGama = True )
-
-                depthPred = self.loadNpy(depthName)[np.newaxis, :, :]
-                envPred = self.loadNpy(envName)
-
-                batchDict = {'albedo': albedo,
-                            'normal': normal,
-                            'rough': rough,
-                            'depth': depth,
-                            'seg': seg,
-                            'imP': imP,
-                            'imE':  imE,
-                            'imEbg': imEbg,
-                            'imP1': imP1,
-                            'imP2': imP2,
-                            'imP3': imP3,
-                            'SH': SH,
-                            'name': name,
-                            'albedoName': self.albedoList[self.perm[ind] ],
-                            'albedoPred': albedoPred,
-                            'normalPred': normalPred,
-                            'roughPred': roughPred,
-                            'imP2Pred': imP2Pred,
-                            'imP3Pred': imP3Pred,
-                            'depthPred': depthPred,
-                            'envPred': envPred}
-            else:
-                albedoName = self.albedoList[self.perm[ind] ][0:-4] + '_c{0}_p.png'.format(self.cascade)
-                normalName = self.normalList[self.perm[ind] ][0:-4] + '_c{0}_p.png'.format(self.cascade)
-                roughName = self.roughList[self.perm[ind] ][0:-4] + '_c{0}_p.png'.format(self.cascade)
-                imP2Name = self.imP2List[self.perm[ind] ][0:-4] + '_c{0}_p.png'.format(self.cascade)
-                imP3Name = self.imP3List[self.perm[ind] ][0:-4] + '_c{0}_p.png'.format(self.cascade)
-                depthName = self.depthList[self.perm[ind] ][0:-4] + '_c{0}_p.npy'.format(self.cascade)
-
-                albedoPred = self.loadImage(albedoName )
-                normalPred = self.loadImage(normalName )
-                normalPred = normalPred / np.sqrt(np.maximum(np.sum(normalPred * normalPred, axis=0), 1e-5) )[np.newaxis, :]
-                roughPred = self.loadImage(roughName )[0:1, :, :]
-                imP2Pred = self.loadImage(imP2Name, isGama = True )
-                imP3Pred = self.loadImage(imP3Name, isGama = True )
-                depthPred = self.loadNpy(depthName)[np.newaxis, :, :]
-
-                batchDict = {'albedo': albedo,
-                            'normal': normal,
-                            'rough': rough,
-                            'depth': depth,
-                            'seg': seg,
-                            'imP': imP,
-                            'imE':  imE,
-                            'imEbg': imEbg,
-                            'imP1': imP1,
-                            'imP2': imP2,
-                            'imP3': imP3,
-                            'SH': SH,
-                            'name': name,
-                            'albedoName': self.albedoList[self.perm[ind] ],
-                            'albedoPred': albedoPred,
-                            'normalPred': normalPred,
-                            'roughPred': roughPred,
-                            'imP2Pred': imP2Pred,
-                            'imP3Pred': imP3Pred,
-                            'depthPred': depthPred}
-        else:
-            batchDict = {'albedo': albedo,
-                         'normal': normal,
-                         'rough': rough,
-                         'depth': depth,
-                         'seg': seg,
-                         'imP': imP,
-                         'imE':  imE,
-                         'imEbg': imEbg,
-                         'imP1': imP1,
-                         'imP2': imP2,
-                         'imP3': imP3,
-                         'SH': SH,
-                         'name': name,
-                         'albedoName': self.albedoList[self.perm[ind] ]}
+        batchDict = {'albedo': albedo,
+                     'normal': normal,
+                     'rough': rough,
+                     'depth': depth,
+                     'seg': seg,
+                     'imP': imP,
+                     'imE':  imE,
+                     'imEbg': imEbg,
+                     'SH': SH,
+                     'name': name,
+                     'albedoName': self.albedoList[self.perm[ind] ],
+                     'realImage': imReal,
+                     'realImageMask': segReal}
 
 
 
@@ -269,6 +182,3 @@ class BatchLoader(Dataset):
     def loadNpy(self, name):
         data = np.load(name)
         return data
-
-
-

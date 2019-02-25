@@ -33,8 +33,6 @@ parser.add_argument('--envWeight', type=float, default=0.01, help = 'the weight 
 parser.add_argument('--isRefine', action = 'store_true', help='whether to refine the network or not')
 parser.add_argument('--epochId', type =int, default =-1, help='the training epoch for the model')
 parser.add_argument('--modelRoot', default= None, help='the root to load the trained model')
-# The detail network setting
-parser.add_argument('--cascadeLevel', type=int, default=0, help='cascade level')
 
 parser.add_argument('--lamC', type=float, default=1.0, help='weight')
 parser.add_argument('--lamZ', type=float, default=1.0, help='weight')
@@ -49,12 +47,10 @@ parser.add_argument('--lamTrc', type=float, default=1.0, help='weight')
 opt = parser.parse_args()
 print(opt)
 
-assert(opt.cascadeLevel == 0)
 opt.gpuId = opt.deviceIds[0]
 
 if opt.experiment is None:
     opt.experiment = 'check_initEnv'
-    opt.experiment += '_cascade0'
 os.system('mkdir {0}'.format(opt.experiment) )
 
 os.system('cp *.py %s' % opt.experiment )
@@ -90,7 +86,6 @@ depthBatch = Variable(torch.FloatTensor(opt.batchSize, 1, opt.imageSize, opt.ima
 imBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 imBgBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 SHBatch = Variable(torch.FloatTensor(opt.batchSize, 3, 9) )
-imP3Batch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 
 # Initial Network
 encoderInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
@@ -146,7 +141,6 @@ if opt.cuda:
     imBatch = imBatch.cuda(opt.gpuId)
     imBgBatch = imBgBatch.cuda(opt.gpuId)
     SHBatch = SHBatch.cuda(opt.gpuId)
-    imP3Batch = imP3Batch.cuda(opt.gpuId)
 
     # encoderInit = encoderInit.cuda(opt.gpuId)
     encoderXInit = encoderXInit.cuda(opt.gpuId)
@@ -243,9 +237,6 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         SHBatch.data.copy_(SH_cpu )
         nameBatch = dataBatch['name']
 
-        imP3_cpu = dataBatch['imP3']
-        imP3Batch.data.resize_(imP3_cpu.size() )
-        imP3Batch.data.copy_(imP3_cpu)
 
         # Clear the gradient in optimizer
         # opEncoderInit.zero_grad()
