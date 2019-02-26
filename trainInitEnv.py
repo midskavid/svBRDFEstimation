@@ -117,18 +117,6 @@ depthRefs = []
 renderLayer = models.renderingLayer(gpuId = opt.gpuId, isCuda = opt.cuda)
 
 scale = 1.0
-# if opt.isRefine == True:
-#     if opt.modelRoot is None:
-#         opt.modelRoot = opt.experiment
-#     encoderInit.load_state_dict(torch.load('{0}/encoderInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-#     albedoInit.load_state_dict(torch.load('{0}/albedoInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-#     normalInit.load_state_dict(torch.load('{0}/normalInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-#     roughInit.load_state_dict(torch.load('{0}/roughInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-#     depthInit.load_state_dict(torch.load('{0}/depthInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-#     envInit.load_state_dict(torch.load('{0}/envInit_{1}.pth'.format(opt.modelRoot, opt.epochId) ) )
-
-#     scale = 1.0 / np.power(2.0, int( (opt.epochId + 1) / 2) )
-
 
 
 
@@ -257,6 +245,10 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
         # Clear the gradient in optimizer
         # opEncoderInit.zero_grad()
+
+
+        # DISCRIMINATOR STEP....
+        #######################################################
         opAlbedoInit.zero_grad()
         opNormalInit.zero_grad()
         opRoughInit.zero_grad()
@@ -421,17 +413,23 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         totalErrTrc = albeW * albedoErrSumTrc + normW * normalErrSumTrc + rougW *roughErrSumTrc \
                 + deptW * depthErrSumTrc + g1W * globalIllu1ErrSumTrc + eW * envErrSumTrc
 
-        #totalErr.backward()
 
-        # DA losses////
-        # [kavidaya] handle lossQtrDisc.. also take care of step...
-        lossQtrDisc.backward()
+        ########################################################
+
+
+
+        totalErr = lamC*totalErrOrig + lamZ*lossQz + lamTr*lossQtrDisc + lamId*lossQid + lamCyc*lossQcyc + lamTrc*totalErrTrc
+        totalErr.backward()
+
+        # Update the network parameter
         opDiscriminatorXInit.step()
         opDiscriminatorYInit.step()
+        opDiscriminatorLatentInit.step()
 
 
-        # Clear the gradient in optimizer
-        # opEncoderInit.zero_grad()
+
+        # Now GENERATOR STEP....
+        #######################################################
         opAlbedoInit.zero_grad()
         opNormalInit.zero_grad()
         opRoughInit.zero_grad()
@@ -446,25 +444,176 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         opDiscriminatorYInit.zero_grad()
         ########################################################
 
+        ########################################################
+        # Build the cascade network architecture #
+        albedoPreds = []
+        normalPreds = []
+        roughPreds = []
+        depthPreds = []
+        SHPreds = []
+        globalIllu1s = []
+        errors = []
+
+        globalIllu1Gt = renderLayer.forward(albedoBatch, normalBatch,
+                roughBatch, depthBatch, segBatch).detach()
+
+
+        # Initial Prediction
+        inputInit = torch.cat([imBatch, imBgBatch, segBatch], dim=1)
+        x1, x2, x3, x4, x5, xSynth = encoderXInit(inputInit)
+        albedoPred = albedoInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(albedoBatch )
+        normalPred = normalInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(normalBatch )
+        roughPred = roughInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(roughBatch )
+        depthPred = depthInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(depthBatch )
+        SHPred = envInit(xSynth)
+        SHPreds.append(SHPred)
+        globalIllu1 = renderLayer.forward(albedoPred, normalPred,
+                roughPred, depthPred, segBatch)
+
+        albedoPreds.append(albedoPred)
+        normalPreds.append(normalPred)
+        roughPreds.append(roughPred)
+        depthPreds.append(depthPred)
+        globalIllu1s.append(globalIllu1)
+
+        ########################################################
+
+        # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
+        inputInit = torch.cat([imRealBatch, segRealBatch], dim=1)
+        _, _, _, _, _, xReal = encoderYInit(inputRealInit)
+        # Loss 1 :
+        idSynthetic = opDecoderXInit(xSynth)[5]
+        idReal = opDecoderYInit(xReal)[5]
+        lossQid = lossMSE(xSynth, inputInit,reduce=True) + lossMSE(xReal, inputRealInit, reduce=True)# L2 norm between synthetic images + L2 norm between real images 
+
+        # Loss 2 : 
+        predLatent = np.concatenate(xSynth, xReal)
+        # take synthetic as 0s and real as 1s
+        labels = np.ones(len(predLatent))
+        labels[0:len(predLatent)/2] = 0
+
+        predLabels = opDiscriminatorLatentInit(predLatent)
+        lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
+
+        # Loss 3 : 
+        predTransX = opDiscriminatorYInit(opDecoderYInit(xSynth))
+        predTransY = opDiscriminatorXInit(opDecoderXInit(xReal))
+        lossQtr = lossCEntropy(predTransX, torch.zeros(predTransX.size())) + lossCEntropy(predTransY, torch.zeros(predTransY.size())) # cross entropy loss...
+
+        # [kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
+        predActualX = opDiscriminatorXInit(inputInit)
+        predActualY = opDiscriminatorYInit(inputRealInit)
+        out = torch.zeros(torch.cat(predTransX, predActualX).size())
+        out[0:len(predTransX)] = 1
+        lossQtrDisc = lossCEntropy(torch.cat(predActualX, predTransX), out) + lossCEntropy(torch.cat(predActualY, predTransY), out) #
+
+        # Loss 4 : 
+        lossQcyc = lossMSE(opDecoderXInit(opEncoderYInit(opDecoderYInit(xSynth))[5]),reduce=True) + \
+                                    lossMSE(opDecoderXInit(opEncoderXInit(opDecoderXInit(xReal))[5]),reduce=True)
+
+        # Loss 5 :
+
+        x1, x2, x3, x4, x5, xSynthTrc = opEncoderYInit(opDecoderYInit(xSynth))
+        albedoPredTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
+        normalPredTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
+        roughPredTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
+        depthPredTrc = depthInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(depthBatch )
+        SHPredTrc = envInit(xSynthTrc)
+        globalIllu1Trc = renderLayer.forward(albedoPredTrc, normalPredTrc,
+                roughPredTrc, depthPredTrc, segBatchTrc)
+
+        ########################################################
+
+        # Compute the error
+        albedoErrs = []
+        normalErrs = []
+        roughErrs = []
+        depthErrs = []
+        globalIllu1Errs = []
+        envErrs = []
+
+        albedoErrsTrc = []
+        normalErrsTrc = []
+        roughErrsTrc = []
+        depthErrsTrc = []
+        globalIllu1ErrsTrc = []
+        envErrsTrc = []
+
+
+        pixelNum = (torch.sum(segBatch ).cpu().data)[0]
+        for m in range(0, len(albedoPreds) ):
+            albedoErrs.append( torch.sum( (albedoPreds[m] - albedoBatch)
+                    * (albedoPreds[m] - albedoBatch) * segBatch.expand_as(albedoBatch) ) / pixelNum / 3.0 )
+            albedoErrsTrc.append( torch.sum( (albedoPredsTrc[m] - albedoBatch)
+                    * (albedoPredsTrc[m] - albedoBatch) * segBatch.expand_as(albedoBatch) ) / pixelNum / 3.0 )
+
+        for m in range(0, len(normalPreds) ):
+            normalErrs.append( torch.sum( (normalPreds[m] - normalBatch)
+                    * (normalPreds[m] - normalBatch) * segBatch.expand_as(normalBatch) ) / pixelNum / 3.0 )
+            normalErrsTrc.append( torch.sum( (normalPredsTrc[m] - normalBatch)
+                    * (normalPredsTrc[m] - normalBatch) * segBatch.expand_as(normalBatch) ) / pixelNum / 3.0 )
+
+        for m in range(0, len(roughPreds) ):
+            roughErrs.append( torch.sum( (roughPreds[m] - roughBatch)
+                    * (roughPreds[m] - roughBatch) * segBatch ) / pixelNum )
+            roughErrsTrc.append( torch.sum( (roughPredsTrc[m] - roughBatch)
+                    * (roughPredsTrc[m] - roughBatch) * segBatch ) / pixelNum )
+
+        for m in range(0, len(depthPreds) ):
+            depthErrs.append( torch.sum( (depthPreds[m] - depthBatch)
+                    * (depthPreds[m] - depthBatch) * segBatch ) / pixelNum )
+            depthErrsTrc.append( torch.sum( (depthPreds[Trcm] - depthBatch)
+                    * (depthPredsTrc[m] - depthBatch) * segBatch ) / pixelNum )
+
+        for m in range(0, len(globalIllu1s) ):
+            globalIllu1Errs.append( torch.sum( (globalIllu1s[m] - globalIllu1Gt)
+                    * (globalIllu1s[m] - globalIllu1Gt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
+            globalIllu1ErrsTrc.append( torch.sum( (globalIllu1sTrc[m] - globalIllu1Gt)
+                    * (globalIllu1sTrc[m] - globalIllu1Gt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
+
+        for m in range(0, len(SHPreds) ):
+            envErrs.append( torch.mean( (SHPreds[m] - SHBatch) * (SHPreds[m] - SHBatch) ) )
+            envErrsTrc.append( torch.mean( (SHPredsTrc[m] - SHBatch) * (SHPredsTrc[m] - SHBatch) ) )
+
+        # Back propagate the gradients
+        albedoErrSum = sum(albedoErrs)
+        normalErrSum = sum(normalErrs)
+        roughErrSum = sum(roughErrs)
+        depthErrSum = sum(depthErrs)
+        globalIllu1ErrSum = sum(globalIllu1Errs)
+        envErrSum = sum(envErrs)
+
+        albedoErrSumTrc = sum(albedoErrsTrc)
+        normalErrSumTrc = sum(normalErrsTrc)
+        roughErrSumTrc = sum(roughErrsTrc)
+        depthErrSumTrc = sum(depthErrsTrc)
+        globalIllu1ErrSumTrc = sum(globalIllu1ErrsTrc)
+        envErrSumTrc = sum(envErrsTrc)
+
+        totalErrOrig = albeW * albedoErrSum + normW * normalErrSum + rougW *roughErrSum \
+                + deptW * depthErrSum + g1W * globalIllu1ErrSum + eW * envErrSum
+
+        totalErrTrc = albeW * albedoErrSumTrc + normW * normalErrSumTrc + rougW *roughErrSumTrc \
+                + deptW * depthErrSumTrc + g1W * globalIllu1ErrSumTrc + eW * envErrSumTrc
+
+
+        ########################################################
+
 
 
         totalErr = lamC*totalErrOrig + lamZ*lossQz + lamTr*lossQtr + lamId*lossQid + lamCyc*lossQcyc + lamTrc*totalErrTrc
         totalErr.backward()
 
-        # Update the network parameter
+
         opEncoderXInit.step()
         opEncoderYInit.step()
         opDecoderXInit.step()
         opDecoderYInit.step()
-        opDiscriminatorLatentInit.step()
         opAlbedoInit.step()
         opNormalInit.step()
         opRoughInit.step()
         opDepthInit.step()
         opEnvInit.step()
-
-
-
 
 
 
