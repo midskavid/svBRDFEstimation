@@ -191,7 +191,8 @@ envErrsNpList = np.ones([1, 1+opt.cascadeLevel], dtype = np.float32)
 
 
 lossMSE = torch.nn.MSELoss()
-lossCEntropy = torch.nn.CrossEntropyLoss()
+# lossCEntropy = torch.nn.CrossEntropyLoss()
+lossDiscriminator = nn.BCELoss()
 # [kavidaya] have to change the dataloader so that it gives batch/2 real and batch/2 fake...
 # I guess just adding another key to the dictionary for realImages would suffice..
 # This would reduce the amount of code we change below..
@@ -296,47 +297,49 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         ########################################################
 
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
-        inputInit = torch.cat([imRealBatch, segRealBatch], dim=1)
+        inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
         _, _, _, _, _, xReal = encoderYInit(inputRealInit)
         # Loss 1 :
-        idSynthetic = opDecoderXInit(xSynth)[5]
-        idReal = opDecoderYInit(xReal)[5]
-        lossQid = lossMSE(xSynth, inputInit,reduce=True) + lossMSE(xReal, inputRealInit, reduce=True)# L2 norm between synthetic images + L2 norm between real images 
+        idSynthetic = decoderXInit(xSynth)[5]
+        idReal = decoderYInit(xReal)[5]
+        lossQid = lossMSE(idSynthetic, inputInit,reduce=True) + lossMSE(idReal, inputRealInit, reduce=True)# L2 norm between synthetic images + L2 norm between real images 
 
         # Loss 2 : 
-        predLatent = np.concatenate(xSynth, xReal)
+        predLatent = torch.cat([xSynth, xReal])
         # take synthetic as 0s and real as 1s
-        labels = np.ones(len(predLatent))
+        # May be have to send to GPU
+        labels = torch.ones(len(predLatent))
         labels[0:len(predLatent)/2] = 0
-
-        predLabels = opDiscriminatorLatentInit(predLatent)
-        lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
+        predLabels = discriminatorLatentInit(predLatent)
+        # Discriminator is LSGAN
+        lossQz = lossMSE(predLabels, labels)
+        # lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
 
         # Loss 3 : 
-        predTransX = opDiscriminatorYInit(opDecoderYInit(xSynth))
-        predTransY = opDiscriminatorXInit(opDecoderXInit(xReal))
-        lossQtr = lossCEntropy(predTransX, torch.zeros(predTransX.size())) + lossCEntropy(predTransY, torch.zeros(predTransY.size())) # cross entropy loss...
+        predTransX = discriminatorYInit(decoderYInit(xSynth))
+        predTransY = discriminatorXInit(decoderXInit(xReal))
+        lossQtr = lossDiscriminator(predTransX, torch.zeros(predTransX.size())) + lossDiscriminator(predTransY, torch.zeros(predTransY.size())) # cross entropy loss...
 
         # [kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
-        predActualX = opDiscriminatorXInit(inputInit)
-        predActualY = opDiscriminatorYInit(inputRealInit)
+        predActualX = discriminatorXInit(inputInit)
+        predActualY = discriminatorYInit(inputRealInit)
         out = torch.zeros(torch.cat(predTransX, predActualX).size())
         out[0:len(predTransX)] = 1
-        lossQtrDisc = lossCEntropy(torch.cat(predActualX, predTransX), out) + lossCEntropy(torch.cat(predActualY, predTransY), out) #
+        lossQtrDisc = lossDiscriminator(torch.cat(predActualX, predTransX), out) + lossDiscriminator(torch.cat(predActualY, predTransY), out) #
 
         # Loss 4 : 
-        lossQcyc = lossMSE(opDecoderXInit(opEncoderYInit(opDecoderYInit(xSynth))[5]),reduce=True) + \
-                                    lossMSE(opDecoderXInit(opEncoderXInit(opDecoderXInit(xReal))[5]),reduce=True)
+        lossQcyc = lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]), inputInit) + \
+                                    lossMSE(decoderYInit(encoderXInit(decoderXInit(xReal))[5]), inputRealInit)
 
         # Loss 5 :
 
-        x1, x2, x3, x4, x5, xSynthTrc = opEncoderYInit(opDecoderYInit(xSynth))
-        albedoPredTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
-        normalPredTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
-        roughPredTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
-        depthPredTrc = depthInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(depthBatch )
-        SHPredTrc = envInit(xSynthTrc)
-        globalIllu1Trc = renderLayer.forward(albedoPredTrc, normalPredTrc,
+        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(decoderYInit(xSynth))
+        albedoPredsTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
+        normalPredsTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
+        roughPredsTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
+        depthPredsTrc = depthInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(depthBatch )
+        SHPredsTrc = envInit(xSynthTrc)
+        globalIllu1sTrc = renderLayer.forward(albedoPredTrc, normalPredTrc,
                 roughPredTrc, depthPredTrc, segBatchTrc)
 
         ########################################################
@@ -482,44 +485,34 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         inputInit = torch.cat([imRealBatch, segRealBatch], dim=1)
         _, _, _, _, _, xReal = encoderYInit(inputRealInit)
         # Loss 1 :
-        idSynthetic = opDecoderXInit(xSynth)[5]
-        idReal = opDecoderYInit(xReal)[5]
+        idSynthetic = decoderXInit(xSynth)[5]
+        idReal = decoderYInit(xReal)[5]
         lossQid = lossMSE(xSynth, inputInit,reduce=True) + lossMSE(xReal, inputRealInit, reduce=True)# L2 norm between synthetic images + L2 norm between real images 
 
         # Loss 2 : 
-        predLatent = np.concatenate(xSynth, xReal)
-        # take synthetic as 0s and real as 1s
-        labels = np.ones(len(predLatent))
-        labels[0:len(predLatent)/2] = 0
-
-        predLabels = opDiscriminatorLatentInit(predLatent)
-        lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
+        labels = torch.zeros(len(xReal))
+        predLabels = discriminatorLatentInit(xReal)
+        lossQz = lossMSE(predLabels, labels)
+        # lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
 
         # Loss 3 : 
-        predTransX = opDiscriminatorYInit(opDecoderYInit(xSynth))
-        predTransY = opDiscriminatorXInit(opDecoderXInit(xReal))
-        lossQtr = lossCEntropy(predTransX, torch.zeros(predTransX.size())) + lossCEntropy(predTransY, torch.zeros(predTransY.size())) # cross entropy loss...
-
-        # [kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
-        predActualX = opDiscriminatorXInit(inputInit)
-        predActualY = opDiscriminatorYInit(inputRealInit)
-        out = torch.zeros(torch.cat(predTransX, predActualX).size())
-        out[0:len(predTransX)] = 1
-        lossQtrDisc = lossCEntropy(torch.cat(predActualX, predTransX), out) + lossCEntropy(torch.cat(predActualY, predTransY), out) #
+        predTransX = discriminatorYInit(decoderYInit(xSynth))
+        predTransY = discriminatorXInit(decoderXInit(xReal))
+        lossQtr = lossDiscriminator(predTransX, torch.ones(predTransX.size())) + lossDiscriminator(predTransY, torch.ones(predTransY.size())) # cross entropy loss...
 
         # Loss 4 : 
-        lossQcyc = lossMSE(opDecoderXInit(opEncoderYInit(opDecoderYInit(xSynth))[5]),reduce=True) + \
-                                    lossMSE(opDecoderXInit(opEncoderXInit(opDecoderXInit(xReal))[5]),reduce=True)
+        lossQcyc = lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]),reduce=True) + \
+                                    lossMSE(decoderXInit(encoderXInit(decoderXInit(xReal))[5]),reduce=True)
 
         # Loss 5 :
 
-        x1, x2, x3, x4, x5, xSynthTrc = opEncoderYInit(opDecoderYInit(xSynth))
+        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(decoderYInit(xSynth))
         albedoPredTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
         normalPredTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
         roughPredTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
         depthPredTrc = depthInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(depthBatch )
         SHPredTrc = envInit(xSynthTrc)
-        globalIllu1Trc = renderLayer.forward(albedoPredTrc, normalPredTrc,
+        globalIllu1sTrc = renderLayer.forward(albedoPredTrc, normalPredTrc,
                 roughPredTrc, depthPredTrc, segBatchTrc)
 
         ########################################################

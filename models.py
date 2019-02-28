@@ -700,16 +700,62 @@ class DiscriminatorLatent(nn.Module) :
     def __init__(self) :
         super(DiscriminatorLatent, self).__init__()
         # Define Arcitecture of Discriminator..
+        # Least Square GAN
+        self.lsgan = nn.Sequential(
+            nn.Linear(D_in, 500),
+            nn.LeakyReLU(negative_slope=0.2, inplace=False),
+            nn.Linear(500, 500),
+            nn.LeakyReLU(negative_slope=0.2, inplace=False),
+            nn.Linear(500, 1),
+        )
 
     def forward(self, x) :
         #define forward pass..
+        x.view(x.size(0), -1)
+        x = self.lsgan(x)
         return x
 
 class DiscriminatorImg(nn.Module) :
+    # Not using Kriegman's paper discriminator anymore.
+    # The image discriminators consist of 4 stride 2 convolutional layers with 4x4 filters and 64, 128, 256, 1 features
+    # respectively. Each convolution is followed by instance normalization and a leaky ReLU nonlinearity with slope 0:2.
+    # The image discriminators are trained with the Improved
+    # Waserstien loss with a gradient penalty of 10:0
     def __init__(self) :
         super(DiscriminatorImg, self).__init__()
         # Define Arcitecture of Discriminator..
+        # self.num_channels = 64
+        # self.conv1 = nn.Conv2d(in_channels = 3, out_channels = self.num_channels, kernel_size = 4, stride = 2)
+        # self.in2d1 = nn.InstanceNorm2d(self.num_channels, affine=True)
+        
+        # self.conv2 = nn.Conv2d(in_channels = self.num_channels, out_channels = self.num_channels * 2, kernel_size = 4, stride = 2)
+        # self.in2d2 = nn.InstanceNorm2d(self.num_channels * 2, affine=True)
+        
+        # self.conv3 = nn.Conv2d(in_channels = self.num_channels * 2, out_channels = self.num_channels * 4, kernel_size = 4, stride = 2)
+        # self.in2d3 = nn.InstanceNorm2d(self.num_channels * 4, affine=True)
+        self.main = nn.Sequential(
+        # input is (nc) x size of image x size of image
+            ndf = 64
+            nn.Conv2d(3, ndf, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2),
+            # state size. (ndf) x 32 x 32
+            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 2),
+            nn.LeakyReLU(0.2),
+            # state size. (ndf*2) x 16 x 16
+            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4),
+            nn.LeakyReLU(0.2),
+            # state size. (ndf*4) x 8 x 8
+            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2),
+            # state size. (ndf*8) x 4 x 4
+            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
+            nn.Sigmoid()
+        )
 
     def forward(self, x) :
         #define forward pass..
-        return x
+        output = self.main(x)
+        return output.view(-1, 1).sequeenze(1)
