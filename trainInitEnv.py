@@ -14,14 +14,14 @@ from torch.utils.data import DataLoader
 
 parser = argparse.ArgumentParser()
 # The locationi of training set
-parser.add_argument('--dataRoot', default='/media/jonathan/program/CNN-ArbitraryShape-Dataset/Shapes/train/', help='path to real image distorted by water')
+parser.add_argument('--dataRoot', default='DATA/', help='path to real image distorted by water')
 parser.add_argument('--experiment', default=None, help='the path to store samples and models')
 # The basic training setting
 parser.add_argument('--nepoch', type=int, default=15, help='the number of epochs for training')
-parser.add_argument('--batchSize', type=int, default=16, help='input batch size')
+parser.add_argument('--batchSize', type=int, default=2, help='input batch size')
 parser.add_argument('--imageSize', type=int, default=256, help='the height / width of the input image to network')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
-parser.add_argument('--deviceIds', type=int, nargs='+', default=[4, 2], help='the gpus used for training network')
+parser.add_argument('--deviceIds', type=int, nargs='+', default=[0], help='the gpus used for training network')
 # The training weight
 parser.add_argument('--albedoWeight', type=float, default=1.0, help='the weight for the diffuse component')
 parser.add_argument('--normalWeight', type=float, default=1.0, help='the weight for the diffuse component')
@@ -40,7 +40,7 @@ parser.add_argument('--lamTr', type=float, default=1.0, help='weight')
 parser.add_argument('--lamId', type=float, default=1.0, help='weight')
 parser.add_argument('--lamCyc', type=float, default=1.0, help='weight')
 parser.add_argument('--lamTrc', type=float, default=1.0, help='weight')
-
+parser.add_argument('--cascadeLevel', type=int, default=0, help='cascade level')
 
 
 
@@ -88,7 +88,7 @@ imBgBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imag
 SHBatch = Variable(torch.FloatTensor(opt.batchSize, 3, 9) )
 imRealBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 imRealBgBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
-
+segRealBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 # Initial Network
 # encoderInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
 
@@ -132,7 +132,7 @@ if opt.cuda:
     imBgBatch = imBgBatch.cuda(opt.gpuId)
     imRealBatch = imRealBatch.cuda(opt.gpuId)
     imRealBgBatch = imRealBgBatch.cuda(opt.gpuId)
-
+    segRealBatch = segRealBatch.cuda(opt.gpuId)
     SHBatch = SHBatch.cuda(opt.gpuId)
 
     # encoderInit = encoderInit.cuda(opt.gpuId)
@@ -297,19 +297,22 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         ########################################################
 
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
+        print (imRealBatch.shape, segRealBatch.shape)
         inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
         _, _, _, _, _, xReal = encoderYInit(inputRealInit)
-        # Loss 1 :
-        idSynthetic = decoderXInit(xSynth)[5]
-        idReal = decoderYInit(xReal)[5]
-        lossQid = lossMSE(idSynthetic, inputInit,reduce=True) + lossMSE(idReal, inputRealInit, reduce=True)# L2 norm between synthetic images + L2 norm between real images 
+        # Loss 13333333 :
+        #print ('#####',decoderXInit(xSynth).shape)
+        idSynthetic = decoderXInit(xSynth)
+        idReal = decoderYInit(xReal)
+        lossQid = lossMSE(idSynthetic, inputInit[:,0:3,:,:]) + lossMSE(idReal, inputRealInit[:,0:3,:,:])# L2 norm between synthetic images + L2 norm between real images 
 
         # Loss 2 : 
         predLatent = torch.cat([xSynth, xReal])
         # take synthetic as 0s and real as 1s
         # May be have to send to GPU
-        labels = torch.ones(len(predLatent))
-        labels[0:len(predLatent)/2] = 0
+        labels = torch.ones(len(predLatent)).cuda()
+        #print ('#######################',len(predLatent))
+        labels[0:len(predLatent)//2] = 0
         predLabels = discriminatorLatentInit(predLatent)
         # Discriminator is LSGAN
         lossQz = lossMSE(predLabels, labels)
@@ -318,29 +321,28 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         # Loss 3 : 
         predTransX = discriminatorYInit(decoderYInit(xSynth))
         predTransY = discriminatorXInit(decoderXInit(xReal))
-        lossQtr = lossDiscriminator(predTransX, torch.zeros(predTransX.size())) + lossDiscriminator(predTransY, torch.zeros(predTransY.size())) # cross entropy loss...
+        lossQtr = lossDiscriminator(predTransX, torch.zeros(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.zeros(predTransY.size()).cuda()) # cross entropy loss...
 
         # [kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
-        predActualX = discriminatorXInit(inputInit)
-        predActualY = discriminatorYInit(inputRealInit)
-        out = torch.zeros(torch.cat(predTransX, predActualX).size())
+        predActualX = discriminatorXInit(inputInit[:,0:3,:,:])
+        predActualY = discriminatorYInit(inputRealInit[:,0:3,:,:])
+        out = torch.zeros(torch.cat((predTransX, predActualX)).size()).cuda()
         out[0:len(predTransX)] = 1
-        lossQtrDisc = lossDiscriminator(torch.cat(predActualX, predTransX), out) + lossDiscriminator(torch.cat(predActualY, predTransY), out) #
+        lossQtrDisc = lossDiscriminator(torch.cat((predActualX, predTransX)), out) + lossDiscriminator(torch.cat((predActualY, predTransY)), out) #
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]), inputInit) + \
-                                    lossMSE(decoderYInit(encoderXInit(decoderXInit(xReal))[5]), inputRealInit)
+        lossQcyc = 0#lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]), inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(encoderXInit(decoderXInit(xReal))[5]), inputRealInit[:,0:3,:,:])
 
         # Loss 5 :
 
-        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(decoderYInit(xSynth))
+        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(xSynth),inputInit[:,3:4,:,:]),dim=1))
         albedoPredsTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
         normalPredsTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
         roughPredsTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
         depthPredsTrc = depthInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(depthBatch )
         SHPredsTrc = envInit(xSynthTrc)
-        globalIllu1sTrc = renderLayer.forward(albedoPredTrc, normalPredTrc,
-                roughPredTrc, depthPredTrc, segBatchTrc)
+        globalIllu1sTrc = renderLayer.forward(albedoPredsTrc, normalPredsTrc,
+                roughPredsTrc, depthPredsTrc, segBatch)
 
         ########################################################
 
@@ -360,7 +362,8 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         envErrsTrc = []
 
 
-        pixelNum = (torch.sum(segBatch ).cpu().data)[0]
+        pixelNum = (torch.sum(segBatch ).cpu().data).item()
+        print (pixelNum)
         for m in range(0, len(albedoPreds) ):
             albedoErrs.append( torch.sum( (albedoPreds[m] - albedoBatch)
                     * (albedoPreds[m] - albedoBatch) * segBatch.expand_as(albedoBatch) ) / pixelNum / 3.0 )
@@ -382,7 +385,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         for m in range(0, len(depthPreds) ):
             depthErrs.append( torch.sum( (depthPreds[m] - depthBatch)
                     * (depthPreds[m] - depthBatch) * segBatch ) / pixelNum )
-            depthErrsTrc.append( torch.sum( (depthPreds[Trcm] - depthBatch)
+            depthErrsTrc.append( torch.sum( (depthPredsTrc[m] - depthBatch)
                     * (depthPredsTrc[m] - depthBatch) * segBatch ) / pixelNum )
 
         for m in range(0, len(globalIllu1s) ):
@@ -422,7 +425,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
 
         totalErr = lamC*totalErrOrig + lamZ*lossQz + lamTr*lossQtrDisc + lamId*lossQid + lamCyc*lossQcyc + lamTrc*totalErrTrc
-        totalErr.backward()
+        totalErr.backward(retain_graph=True)
 
         # Update the network parameter
         opDiscriminatorXInit.step()
@@ -485,12 +488,12 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         inputInit = torch.cat([imRealBatch, segRealBatch], dim=1)
         _, _, _, _, _, xReal = encoderYInit(inputRealInit)
         # Loss 1 :
-        idSynthetic = decoderXInit(xSynth)[5]
-        idReal = decoderYInit(xReal)[5]
-        lossQid = lossMSE(xSynth, inputInit,reduce=True) + lossMSE(xReal, inputRealInit, reduce=True)# L2 norm between synthetic images + L2 norm between real images 
+        idSynthetic = decoderXInit(xSynth)
+        idReal = decoderYInit(xReal)
+        lossQid = lossMSE(idSynthetic, inputInit[:,0:3,:,:]) + lossMSE(idReal, inputRealInit[:,0:3,:,:])# L2 norm between synthetic images + L2 norm between real images 
 
         # Loss 2 : 
-        labels = torch.zeros(len(xReal))
+        labels = torch.zeros(len(xReal)).cuda()
         predLabels = discriminatorLatentInit(xReal)
         lossQz = lossMSE(predLabels, labels)
         # lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
@@ -498,22 +501,21 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         # Loss 3 : 
         predTransX = discriminatorYInit(decoderYInit(xSynth))
         predTransY = discriminatorXInit(decoderXInit(xReal))
-        lossQtr = lossDiscriminator(predTransX, torch.ones(predTransX.size())) + lossDiscriminator(predTransY, torch.ones(predTransY.size())) # cross entropy loss...
+        lossQtr = lossDiscriminator(predTransX, torch.ones(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.ones(predTransY.size()).cuda()) # cross entropy loss...
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]),reduce=True) + \
-                                    lossMSE(decoderXInit(encoderXInit(decoderXInit(xReal))[5]),reduce=True)
+        lossQcyc = 0#lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]),reduce=True) + lossMSE(decoderXInit(encoderXInit(decoderXInit(xReal))[5]),reduce=True)
 
         # Loss 5 :
-
-        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(decoderYInit(xSynth))
+        
+        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(xSynth),inputInit[:,3:4,:,:]),dim=1))
         albedoPredTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
         normalPredTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
         roughPredTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
         depthPredTrc = depthInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(depthBatch )
         SHPredTrc = envInit(xSynthTrc)
         globalIllu1sTrc = renderLayer.forward(albedoPredTrc, normalPredTrc,
-                roughPredTrc, depthPredTrc, segBatchTrc)
+                roughPredTrc, depthPredTrc, segBatch)
 
         ########################################################
 
@@ -533,7 +535,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         envErrsTrc = []
 
 
-        pixelNum = (torch.sum(segBatch ).cpu().data)[0]
+        pixelNum = (torch.sum(segBatch ).cpu().data).item()
         for m in range(0, len(albedoPreds) ):
             albedoErrs.append( torch.sum( (albedoPreds[m] - albedoBatch)
                     * (albedoPreds[m] - albedoBatch) * segBatch.expand_as(albedoBatch) ) / pixelNum / 3.0 )
@@ -555,7 +557,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         for m in range(0, len(depthPreds) ):
             depthErrs.append( torch.sum( (depthPreds[m] - depthBatch)
                     * (depthPreds[m] - depthBatch) * segBatch ) / pixelNum )
-            depthErrsTrc.append( torch.sum( (depthPreds[Trcm] - depthBatch)
+            depthErrsTrc.append( torch.sum( (depthPredsTrc[m] - depthBatch)
                     * (depthPredsTrc[m] - depthBatch) * segBatch ) / pixelNum )
 
         for m in range(0, len(globalIllu1s) ):

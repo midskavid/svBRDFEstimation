@@ -593,7 +593,7 @@ class renderingLayer():
 
 class encoderInitialXDA(nn.Module):
     def __init__(self):
-        super(encoderInitial, self).__init__()
+        super(encoderInitialXDA, self).__init__()
         # Input should be segmentation, image with environment map, image with point light + environment map
         self.conv1 = nn.Conv2d(in_channels=7, out_channels=32, kernel_size=6, stride=2, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(32)
@@ -622,7 +622,7 @@ class encoderInitialXDA(nn.Module):
 
 class encoderInitialYDA(nn.Module):
     def __init__(self):
-        super(encoderInitial, self).__init__()
+        super(encoderInitialYDA, self).__init__()
         # Input should be segmentation, image
         self.conv1 = nn.Conv2d(in_channels=4, out_channels=32, kernel_size=6, stride=2, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(32)
@@ -649,7 +649,7 @@ class encoderInitialYDA(nn.Module):
 
 class decoderInitialDA(nn.Module):
     def __init__(self, mode=0):
-        super(decoderInitial, self).__init__()
+        super(decoderInitialDA, self).__init__()
         # branch for normal prediction
         self.dconv0 = nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False)
         self.dbn0 = nn.BatchNorm2d(256)
@@ -702,7 +702,7 @@ class DiscriminatorLatent(nn.Module) :
         # Define Arcitecture of Discriminator..
         # Least Square GAN
         self.lsgan = nn.Sequential(
-            nn.Linear(D_in, 500),
+            nn.Linear(8192, 500),
             nn.LeakyReLU(negative_slope=0.2, inplace=False),
             nn.Linear(500, 500),
             nn.LeakyReLU(negative_slope=0.2, inplace=False),
@@ -711,7 +711,9 @@ class DiscriminatorLatent(nn.Module) :
 
     def forward(self, x) :
         #define forward pass..
-        x.view(x.size(0), -1)
+        #print (x.shape)
+        x = x.view(x.shape[0], -1)
+        #print ('#########',x.shape)
         x = self.lsgan(x)
         return x
 
@@ -733,9 +735,9 @@ class DiscriminatorImg(nn.Module) :
         
         # self.conv3 = nn.Conv2d(in_channels = self.num_channels * 2, out_channels = self.num_channels * 4, kernel_size = 4, stride = 2)
         # self.in2d3 = nn.InstanceNorm2d(self.num_channels * 4, affine=True)
+        ndf = 64
         self.main = nn.Sequential(
         # input is (nc) x size of image x size of image
-            ndf = 64
             nn.Conv2d(3, ndf, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2),
             # state size. (ndf) x 32 x 32
@@ -757,5 +759,6 @@ class DiscriminatorImg(nn.Module) :
 
     def forward(self, x) :
         #define forward pass..
+        
         output = self.main(x)
-        return output.view(-1, 1).sequeenze(1)
+        return output.view(-1, 1).squeeze(1)

@@ -15,7 +15,7 @@ class BatchLoader(Dataset):
         self.imSize = imSize
         self.phase = phase.upper()
 
-        shapeList = glob.glob(osp.join(dataRoot, 'Shape__*') )
+        shapeList = glob.glob(osp.join(dataRoot, 'Synth/Shape__*') )
         shapeList = sorted(shapeList)
 
 
@@ -58,8 +58,10 @@ class BatchLoader(Dataset):
             random.shuffle(self.perm)
 
         # Real Images
-        self.realImageMaskNames = glob.glob(osp.join(osp.join(dataRoot,'RealImages'), '*_mask.png'))
+        #print(osp.join(osp.join(dataRoot,'Real/RealWordImages'), '*_mask.jpg'))
+        self.realImageMaskNames = glob.glob(osp.join(osp.join(dataRoot,'Real/RealWorldImages'), '*_mask.jpg'))
         self.realImageNames = [x.replace('_mask', '') for x in self.realImageMaskNames]
+        print (len(self.realImageNames),len(self.perm))
         self.permReal = np.random.randint(0,len(self.realImageNames),len(self.perm))
 
     def __len__(self):
@@ -130,7 +132,8 @@ class BatchLoader(Dataset):
 
         imReal = self.loadImage(self.realImageNames[self.permReal[ind] ], isGama = True)
         segReal = 0.5 * self.loadImage(self.realImageMaskNames[self.permReal[ind] ] ) + 0.5
-        segReal = (segReal[0, :, :] > 0.999999).astype(dtype = np.int)
+        #print (segReal.shape)
+        segReal = (segReal[:, :, 0] > 0.999999).astype(dtype = np.int)
         segReal = ndimage.binary_erosion(segReal, structure = np.ones( (2, 2) ) ).astype(dtype = np.float32 )
         segReal = segReal[np.newaxis, :, :]
 

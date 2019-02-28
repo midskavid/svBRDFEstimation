@@ -1,3 +1,6 @@
 mask-rcnn/
 Preprocess/
+DATA/
+check_initEnv/
 *.zip
+*.pyc
