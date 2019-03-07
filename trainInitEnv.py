@@ -277,7 +277,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
 
         # Initial Prediction
-        inputInit = torch.cat([imBatch, imBgBatch, segBatch], dim=1)
+        inputInit = torch.cat([imBatch, segBatch], dim=1)
         x1, x2, x3, x4, x5, xSynth = encoderXInit(inputInit)
         albedoPred = albedoInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(albedoBatch )
         normalPred = normalInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(normalBatch )
@@ -331,7 +331,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         lossQtrDisc = lossDiscriminator(torch.cat((predActualX, predTransX)), out) + lossDiscriminator(torch.cat((predActualY, predTransY)), out) #
 
         # Loss 4 : 
-        lossQcyc = 0#lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]), inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(encoderXInit(decoderXInit(xReal))[5]), inputRealInit[:,0:3,:,:])
+        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))[5]),reduce=True) + lossMSE(decoderXInit(encoderXInit((torch.cat(decoderXInit(xReal)), inputInit[:,3:4,:,:]),dim=1)[5]),reduce=True)
 
         # Loss 5 :
 
@@ -465,7 +465,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
 
         # Initial Prediction
-        inputInit = torch.cat([imBatch, imBgBatch, segBatch], dim=1)
+        inputInit = torch.cat([imBatch, segBatch], dim=1)
         x1, x2, x3, x4, x5, xSynth = encoderXInit(inputInit)
         albedoPred = albedoInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(albedoBatch )
         normalPred = normalInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(normalBatch )
@@ -504,7 +504,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         lossQtr = lossDiscriminator(predTransX, torch.ones(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.ones(predTransY.size()).cuda()) # cross entropy loss...
 
         # Loss 4 : 
-        lossQcyc = 0#lossMSE(decoderXInit(encoderYInit(decoderYInit(xSynth))[5]),reduce=True) + lossMSE(decoderXInit(encoderXInit(decoderXInit(xReal))[5]),reduce=True)
+        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))[5]),reduce=True) + lossMSE(decoderXInit(encoderXInit((torch.cat(decoderXInit(xReal)), inputInit[:,3:4,:,:]),dim=1)[5]),reduce=True)
 
         # Loss 5 :
         
