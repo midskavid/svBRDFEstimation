@@ -43,6 +43,8 @@ parser.add_argument('--lamCyc', type=float, default=1.0, help='weight')
 parser.add_argument('--lamTrc', type=float, default=1.0, help='weight')
 parser.add_argument('--cascadeLevel', type=int, default=0, help='cascade level')
 
+parser.add_argument('--loadModel', action='store_false', help='Load Saved Model')
+parser.add_argument('--modelPath', default='check_initEnv/', help='path to saved model')
 
 
 opt = parser.parse_args()
@@ -194,11 +196,48 @@ envErrsNpList = np.ones([1, 1+opt.cascadeLevel], dtype = np.float32)
 lossMSE = torch.nn.MSELoss()
 # lossCEntropy = torch.nn.CrossEntropyLoss()
 lossDiscriminator = nn.BCELoss()
+
+
+epoch = 0
+if opt.loadModel : 
+    print ('############Loading Model###########')
+    checkpoint = torch.load(opt.modelPath)
+    epoch = checkpoint['epoch']
+    encoderXInit.load_state_dict(checkpoint['encoderXInit'])
+    encoderYInit.load_state_dict(checkpoint['encoderYInit'])
+    decoderXInit.load_state_dict(checkpoint['decoderXInit'])
+    decoderYInit.load_state_dict(checkpoint['decoderYInit'])
+    albedoInit.load_state_dict(checkpoint['albedoInit'])
+    normalInit.load_state_dict(checkpoint['normalInit'])
+    roughInit.load_state_dict(checkpoint['roughInit'])
+    depthInit.load_state_dict(checkpoint['depthInit'])
+    envInit.load_state_dict(checkpoint['envInit'])
+    discriminatorLatentInit.load_state_dict(checkpoint['discriminatorLatentInit'])
+    discriminatorXInit.load_state_dict(checkpoint['discriminatorXInit'])
+    discriminatorYInit.load_state_dict(checkpoint['discriminatorYInit'])
+
+
+    opEncoderXInit.load_state_dict(checkpoint['opEncoderXInit'])
+    opEncoderYInit.load_state_dict(checkpoint['opEncoderYInit'])
+    opDecoderXInit.load_state_dict(checkpoint['opDecoderXInit'])
+    opDecoderYInit.load_state_dict(checkpoint['opDecoderYInit'])
+    opAlbedoInit.load_state_dict(checkpoint['opAlbedoInit'])
+    opNormalInit.load_state_dict(checkpoint['opNormalInit'])
+    opRoughInit.load_state_dict(checkpoint['opRoughInit'])
+    opDepthInit.load_state_dict(checkpoint['opDepthInit'])
+    opEnvInit.load_state_dict(checkpoint['opEnvInit'])
+    opDiscriminatorLatentInit.load_state_dict(checkpoint['opDiscriminatorLatentInit'])
+    opDiscriminatorXInit.load_state_dict(checkpoint['opDiscriminatorXInit'])
+    opDiscriminatorYInit.load_state_dict(checkpoint['opDiscriminatorYInit'])
+
+    print ('############Model Loaded###########')
+
+
 # [kavidaya] have to change the dataloader so that it gives batch/2 real and batch/2 fake...
 # I guess just adding another key to the dictionary for realImages would suffice..
 # This would reduce the amount of code we change below..
 
-for epoch in list(range(opt.epochId+1, opt.nepoch)):
+while epoch < opt.nepoch:
     trainingLog = open('{0}/trainingLog_{1}.txt'.format(opt.experiment, epoch), 'w')
     for i, dataBatch in enumerate(brdfLoader):
         j += 1
@@ -761,6 +800,33 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
                 
                 utils.visualizeSH('{0}/{1}_predSH.png'.format(opt.experiment, j),
                         SHPreds[m], nameBatch, 128, 256, 2, 8)
+            # Save the model...
+
+            torch.save({'epoch' : epoch,
+            'encoderXInit' : encoderXInit.state_dict(),
+            'encoderYInit' : encoderYInit.state_dict(),
+            'decoderXInit' : decoderXInit.state_dict(),
+            'decoderYInit' : decoderYInit.state_dict(),
+            'albedoInit' : albedoInit.state_dict(),
+            'normalInit' : normalInit.state_dict(),
+            'roughInit' : roughInit.state_dict(),
+            'depthInit' : depthInit.state_dict(),
+            'envInit' : envInit.state_dict(),
+            'discriminatorLatentInit' : discriminatorLatentInit.state_dict(),
+            'discriminatorXInit' : discriminatorXInit.state_dict(),
+            'discriminatorYInit' : discriminatorYInit.state_dict(),
+            'opEncoderXInit' : opEncoderXInit.state_dict(),
+            'opEncoderYInit' : opEncoderYInit.state_dict(),
+            'opDecoderXInit' : opDecoderXInit.state_dict(),
+            'opDecoderYInit' : opDecoderYInit.state_dict(),
+            'opAlbedoInit' : opAlbedoInit.state_dict(),
+            'opNormalInit' : opNormalInit.state_dict(),
+            'opRoughInit' : opRoughInit.state_dict(),
+            'opDepthInit' : opDepthInit.state_dict(),
+            'opEnvInit' : opEnvInit.state_dict(),
+            'opDiscriminatorLatentInit' : opDiscriminatorLatentInit.state_dict(),
+            'opDiscriminatorXInit' : opDiscriminatorXInit.state_dict(),
+            'opDiscriminatorYInit' : opDiscriminatorYInit.state_dict()}, opt.modelPath)
 
     trainingLog.close()
 
@@ -779,6 +845,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         for param_group in opEnvInit.param_groups:
             param_group['lr'] /= 2
 
+    epoch += 1
     # # Save the error record
     # np.save('{0}/albedoError_{1}.npy'.format(opt.experiment, epoch), albedoErrsNpList )
     # np.save('{0}/normalError_{1}.npy'.format(opt.experiment, epoch), normalErrsNpList )
