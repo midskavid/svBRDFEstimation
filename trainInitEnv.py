@@ -14,7 +14,8 @@ from torch.utils.data import DataLoader
 
 parser = argparse.ArgumentParser()
 # The locationi of training set
-parser.add_argument('--dataRoot', default='DATA/', help='path to real image distorted by water')
+#parser.add_argument('--dataRoot', default='DATA/', help='path to real image distorted by water')
+parser.add_argument('--dataRoot', default='/datasets/home/13/113/ptayal/CSE291DA/svBRDFEstimation/DATA/', help='path to real image distorted by water')
 parser.add_argument('--experiment', default=None, help='the path to store samples and models')
 # The basic training setting
 parser.add_argument('--nepoch', type=int, default=100, help='the number of epochs for training')
@@ -331,11 +332,11 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         lossQtrDisc = lossDiscriminator(torch.cat((predActualX, predTransX)), out) + lossDiscriminator(torch.cat((predActualY, predTransY)), out) #
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(encoderXInit(torch.cat((decoderXInit(xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
+        lossQcyc = lossMSE(decoderXInit(*encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(*encoderXInit(torch.cat((decoderXInit(y1, y2, y3, y4, y5, xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
 
         # Loss 5 :
 
-        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(xSynth),inputInit[:,3:4,:,:]),dim=1))
+        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth),inputInit[:,3:4,:,:]),dim=1))
         albedoPredsTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
         normalPredsTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
         roughPredsTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
@@ -489,7 +490,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         y1, y2, y3, y4, y5, xReal = encoderYInit(inputRealInit)
         # Loss 1 :
         idSynthetic = decoderXInit(x1, x2, x3, x4, x5, xSynth)
-        idReal = decoderYInit(xReal)
+        idReal = decoderYInit(y1, y2, y3, y4, y5, xReal)
         lossQid = lossMSE(idSynthetic, inputInit[:,0:3,:,:]) + lossMSE(idReal, inputRealInit[:,0:3,:,:])# L2 norm between synthetic images + L2 norm between real images 
 
         # Loss 2 : 
@@ -504,12 +505,12 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         lossQtr = lossDiscriminator(predTransX, torch.ones(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.ones(predTransY.size()).cuda()) # cross entropy loss...
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(encoderXInit(torch.cat((decoderXInit(xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
+        lossQcyc = lossMSE(decoderXInit(*encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(*encoderXInit(torch.cat((decoderXInit(y1, y2, y3, y4, y5, xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
 
 
         # Loss 5 :
         
-        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(xSynth),inputInit[:,3:4,:,:]),dim=1))
+        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth),inputInit[:,3:4,:,:]),dim=1))
         albedoPredTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
         normalPredTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
         roughPredTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
@@ -716,6 +717,31 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
             vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
                     '{0}/{1}_imPredReal_{2}.png'.format(opt.experiment, j, 0) )
+            
+            x1, x2, x3, x4, x5, xReal = encoderXInit(inputRealInit)
+            albedoPredReal = albedoInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(albedoBatch ) #crude hack...
+            normalPredReal = normalInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(normalBatch )
+            roughPredReal = roughInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(roughBatch )
+            depthPredReal = depthInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(depthBatch )
+            SHPredReal = envInit(xReal)
+            globalIllu1sReal = renderLayer.forward(albedoPredReal, normalPredReal,
+                    roughPredReal, depthPredReal, segRealBatch)
+
+            vutils.save_image( ( 0.5*(albedoPredReal + 1)*segRealBatch.expand_as(albedoPredReal) ).data,
+                    '{0}/{1}_albedoPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
+            vutils.save_image( ( 0.5*(normalPredReal + 1)*segRealBatch.expand_as(normalPredReal) ).data,
+                    '{0}/{1}_normalPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
+            vutils.save_image( ( 0.5*(roughPredReal + 1)*segRealBatch.expand_as(roughPredReal) ).data,
+                    '{0}/{1}_roughPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
+
+            depthOut = 1 / torch.clamp(depthPredReal, 1e-6, 10) * segRealBatch.expand_as(depthPredReal)
+            deepthOut = (depthPredReal - 0.25) /0.8
+            vutils.save_image( ( depthOut * segRealBatch.expand_as(depthPredReal) ).data,
+                    '{0}/{1}_depthPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
+
+            vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
+                    '{0}/{1}_imPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
+            
             
             for n in range(0, opt.cascadeLevel + 1):
                 vutils.save_image( ( 0.5*(albedoPreds[n] + 1)*segBatch.expand_as(albedoPreds[n]) ).data,
