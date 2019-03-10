@@ -95,8 +95,8 @@ segRealBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.i
 # [kavidaya] In paper they mention sharing the weights between the two encoders.. I guess having two encoders is an overkill!
 encoderXInit = nn.DataParallel(models.encoderInitialXDA(), device_ids = opt.deviceIds)
 encoderYInit = nn.DataParallel(models.encoderInitialYDA(), device_ids = opt.deviceIds)
-decoderXInit = nn.DataParallel(models.decoderInitialDA(mode=0), device_ids = opt.deviceIds)
-decoderYInit = nn.DataParallel(models.decoderInitialDA(mode=0), device_ids = opt.deviceIds)
+decoderXInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
+decoderYInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
 
 albedoInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
 normalInit = nn.DataParallel(models.decoderInitial(mode=1), device_ids = opt.deviceIds)
@@ -299,11 +299,11 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
         print (imRealBatch.shape, segRealBatch.shape)
         inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
-        _, _, _, _, _, xReal = encoderYInit(inputRealInit)
+        y1, y2, y3, y4, y5, xReal = encoderYInit(inputRealInit)
         # Loss 13333333 :
         #print ('#####',decoderXInit(xSynth).shape)
-        idSynthetic = decoderXInit(xSynth)
-        idReal = decoderYInit(xReal)
+        idSynthetic = decoderXInit(x1, x2, x3, x4, x5, xSynth)
+        idReal = decoderYInit(y1, y2, y3, y4, y5, xReal)
         lossQid = lossMSE(idSynthetic, inputInit[:,0:3,:,:]) + lossMSE(idReal, inputRealInit[:,0:3,:,:])# L2 norm between synthetic images + L2 norm between real images 
 
         # Loss 2 : 
@@ -319,8 +319,8 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         # lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
 
         # Loss 3 : 
-        predTransX = discriminatorYInit(decoderYInit(xSynth))
-        predTransY = discriminatorXInit(decoderXInit(xReal))
+        predTransX = discriminatorYInit(decoderYInit(x1, x2, x3, x4, x5, xSynth))
+        predTransY = discriminatorXInit(decoderXInit(y1, y2, y3, y4, y5, xReal))
         lossQtr = lossDiscriminator(predTransX, torch.zeros(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.zeros(predTransY.size()).cuda()) # cross entropy loss...
 
         # [kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
@@ -331,7 +331,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         lossQtrDisc = lossDiscriminator(torch.cat((predActualX, predTransX)), out) + lossDiscriminator(torch.cat((predActualY, predTransY)), out) #
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))[5]),reduce=True) + lossMSE(decoderXInit(encoderXInit((torch.cat(decoderXInit(xReal)), inputInit[:,3:4,:,:]),dim=1)[5]),reduce=True)
+        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))),reduce=True) + lossMSE(decoderXInit(encoderXInit((torch.cat(decoderXInit(xReal)), inputInit[:,3:4,:,:]),dim=1)),reduce=True)
 
         # Loss 5 :
 
@@ -486,9 +486,9 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
         inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
-        _, _, _, _, _, xReal = encoderYInit(inputRealInit)
+        y1, y2, y3, y4, y5, xReal = encoderYInit(inputRealInit)
         # Loss 1 :
-        idSynthetic = decoderXInit(xSynth)
+        idSynthetic = decoderXInit(x1, x2, x3, x4, x5, xSynth)
         idReal = decoderYInit(xReal)
         lossQid = lossMSE(idSynthetic, inputInit[:,0:3,:,:]) + lossMSE(idReal, inputRealInit[:,0:3,:,:])# L2 norm between synthetic images + L2 norm between real images 
 
@@ -499,12 +499,12 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         # lossQz = lossCEntropy(predLabels, labels) # cross entropy loss between predLabels and labels..
 
         # Loss 3 : 
-        predTransX = discriminatorYInit(decoderYInit(xSynth))
-        predTransY = discriminatorXInit(decoderXInit(xReal))
+        predTransX = discriminatorYInit(decoderYInit(x1, x2, x3, x4, x5, xSynth))
+        predTransY = discriminatorXInit(decoderXInit(y1, y2, y3, y4, y5, xReal))
         lossQtr = lossDiscriminator(predTransX, torch.ones(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.ones(predTransY.size()).cuda()) # cross entropy loss...
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))[5]),reduce=True) + lossMSE(decoderXInit(encoderXInit((torch.cat(decoderXInit(xReal)), inputInit[:,3:4,:,:]),dim=1)[5]),reduce=True)
+        lossQcyc = lossMSE(decoderXInit(encoderYInit(torch.cat((decoderYInit(xSynth), inputInit[:,3:4,:,:]),dim=1))),reduce=True) + lossMSE(decoderXInit(encoderXInit((torch.cat(decoderXInit(xReal)), inputInit[:,3:4,:,:]),dim=1)),reduce=True)
 
         # Loss 5 :
         
@@ -752,18 +752,18 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         for param_group in opEnvInit.param_groups:
             param_group['lr'] /= 2
 
-    # Save the error record
-    np.save('{0}/albedoError_{1}.npy'.format(opt.experiment, epoch), albedoErrsNpList )
-    np.save('{0}/normalError_{1}.npy'.format(opt.experiment, epoch), normalErrsNpList )
-    np.save('{0}/roughError_{1}.npy'.format(opt.experiment, epoch), roughErrsNpList )
-    np.save('{0}/depthError_{1}.npy'.format(opt.experiment, epoch), depthErrsNpList )
-    np.save('{0}/globalIllu1_{1}.npy'.format(opt.experiment, epoch), globalIllu1ErrsNpList )
-    np.save('{0}/envErrs_{1}.npy'.format(opt.experiment, epoch), envErrsNpList )
+    # # Save the error record
+    # np.save('{0}/albedoError_{1}.npy'.format(opt.experiment, epoch), albedoErrsNpList )
+    # np.save('{0}/normalError_{1}.npy'.format(opt.experiment, epoch), normalErrsNpList )
+    # np.save('{0}/roughError_{1}.npy'.format(opt.experiment, epoch), roughErrsNpList )
+    # np.save('{0}/depthError_{1}.npy'.format(opt.experiment, epoch), depthErrsNpList )
+    # np.save('{0}/globalIllu1_{1}.npy'.format(opt.experiment, epoch), globalIllu1ErrsNpList )
+    # np.save('{0}/envErrs_{1}.npy'.format(opt.experiment, epoch), envErrsNpList )
 
-    # save the models
-    #torch.save(encoderInit.state_dict(), '{0}/encoderInit_{1}.pth'.format(opt.experiment, epoch) )
-    torch.save(albedoInit.state_dict(), '{0}/albedoInit_{1}.pth'.format(opt.experiment, epoch) )
-    torch.save(normalInit.state_dict(), '{0}/normalInit_{1}.pth'.format(opt.experiment, epoch) )
-    torch.save(roughInit.state_dict(), '{0}/roughInit_{1}.pth'.format(opt.experiment, epoch) )
-    torch.save(depthInit.state_dict(), '{0}/depthInit_{1}.pth'.format(opt.experiment, epoch) )
-    torch.save(envInit.state_dict(), '{0}/envInit_{1}.pth'.format(opt.experiment, epoch) )
+    # # save the models
+    # #torch.save(encoderInit.state_dict(), '{0}/encoderInit_{1}.pth'.format(opt.experiment, epoch) )
+    # torch.save(albedoInit.state_dict(), '{0}/albedoInit_{1}.pth'.format(opt.experiment, epoch) )
+    # torch.save(normalInit.state_dict(), '{0}/normalInit_{1}.pth'.format(opt.experiment, epoch) )
+    # torch.save(roughInit.state_dict(), '{0}/roughInit_{1}.pth'.format(opt.experiment, epoch) )
+    # torch.save(depthInit.state_dict(), '{0}/depthInit_{1}.pth'.format(opt.experiment, epoch) )
+    # torch.save(envInit.state_dict(), '{0}/envInit_{1}.pth'.format(opt.experiment, epoch) )
