@@ -86,7 +86,7 @@ class encoderInitial(nn.Module):
     def __init__(self):
         super(encoderInitial, self).__init__()
         # Input should be segmentation, image with environment map, image with point light + environment map
-        self.conv1 = nn.Conv2d(in_channels=7, out_channels=32, kernel_size=6, stride=2, padding=2, bias=False)
+        self.conv1 = nn.Conv2d(in_channels=4, out_channels=32, kernel_size=6, stride=2, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64)
