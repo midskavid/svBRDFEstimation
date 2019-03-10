@@ -91,11 +91,11 @@ imRealBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.im
 imRealBgBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 segRealBatch = Variable(torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize) )
 # Initial Network
-# encoderInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
+encoderInit = nn.DataParallel(models.encoderInitial(), device_ids = opt.deviceIds)
 
 # [kavidaya] In paper they mention sharing the weights between the two encoders.. I guess having two encoders is an overkill!
-encoderXInit = nn.DataParallel(models.encoderInitialXDA(), device_ids = opt.deviceIds)
-encoderYInit = nn.DataParallel(models.encoderInitialYDA(), device_ids = opt.deviceIds)
+# encoderXInit = nn.DataParallel(models.encoderInitialXDA(), device_ids = opt.deviceIds)
+# encoderYInit = nn.DataParallel(models.encoderInitialYDA(), device_ids = opt.deviceIds)
 decoderXInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
 decoderYInit = nn.DataParallel(models.decoderInitial(mode=0), device_ids = opt.deviceIds)
 
@@ -137,8 +137,8 @@ if opt.cuda:
     SHBatch = SHBatch.cuda(opt.gpuId)
 
     # encoderInit = encoderInit.cuda(opt.gpuId)
-    encoderXInit = encoderXInit.cuda(opt.gpuId)
-    encoderYInit = encoderYInit.cuda(opt.gpuId)
+    encoderInit = encoderInit.cuda(opt.gpuId)
+    encoderInit = encoderInit.cuda(opt.gpuId)
     albedoInit = albedoInit.cuda(opt.gpuId)
     normalInit = normalInit.cuda(opt.gpuId)
     roughInit = roughInit.cuda(opt.gpuId)
@@ -159,8 +159,8 @@ if opt.cuda:
 # [kavidaya] It is only from decoders x and y that these connections are removed.
 # [kavidaya] They would still work with the decoder h..
 
-opEncoderXInit = optim.Adam(encoderXInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
-opEncoderYInit = optim.Adam(encoderYInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+opEncoderInit = optim.Adam(encoderInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
+#opencoderInit = optim.Adam(encoderInit.parameters(), lr=1e-4 * scale, betas=(0.5, 0.999) )
 opDecoderXInit = optim.Adam(decoderXInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
 opDecoderYInit = optim.Adam(decoderYInit.parameters(), lr=2e-4 * scale, betas=(0.5, 0.999) )
 
@@ -256,8 +256,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         opRoughInit.zero_grad()
         opDepthInit.zero_grad()
         opEnvInit.zero_grad()
-        opEncoderXInit.zero_grad()
-        opEncoderYInit.zero_grad()
+        opEncoderInit.zero_grad()
         opDecoderXInit.zero_grad()
         opDecoderYInit.zero_grad()
         opDiscriminatorLatentInit.zero_grad()
@@ -279,7 +278,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
         # Initial Prediction
         inputInit = torch.cat([imBatch, segBatch], dim=1)
-        x1, x2, x3, x4, x5, xSynth = encoderXInit(inputInit)
+        x1, x2, x3, x4, x5, xSynth = encoderInit(inputInit)
         albedoPred = albedoInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(albedoBatch )
         normalPred = normalInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(normalBatch )
         roughPred = roughInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(roughBatch )
@@ -300,7 +299,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
         print (imRealBatch.shape, segRealBatch.shape)
         inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
-        y1, y2, y3, y4, y5, xReal = encoderYInit(inputRealInit)
+        y1, y2, y3, y4, y5, xReal = encoderInit(inputRealInit)
         # Loss 13333333 :
         #print ('#####',decoderXInit(xSynth).shape)
         idSynthetic = decoderXInit(x1, x2, x3, x4, x5, xSynth)
@@ -332,11 +331,11 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         lossQtrDisc = lossDiscriminator(torch.cat((predActualX, predTransX)), out) + lossDiscriminator(torch.cat((predActualY, predTransY)), out) #
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(*encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(*encoderXInit(torch.cat((decoderXInit(y1, y2, y3, y4, y5, xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
+        lossQcyc = lossMSE(decoderXInit(*encoderInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(*encoderInit(torch.cat((decoderXInit(y1, y2, y3, y4, y5, xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
 
         # Loss 5 :
 
-        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth),inputInit[:,3:4,:,:]),dim=1))
+        x1, x2, x3, x4, x5, xSynthTrc = encoderInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth),inputInit[:,3:4,:,:]),dim=1))
         albedoPredsTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
         normalPredsTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
         roughPredsTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
@@ -442,8 +441,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         opRoughInit.zero_grad()
         opDepthInit.zero_grad()
         opEnvInit.zero_grad()
-        opEncoderXInit.zero_grad()
-        opEncoderYInit.zero_grad()
+        opEncoderInit.zero_grad()
         opDecoderXInit.zero_grad()
         opDecoderYInit.zero_grad()
         opDiscriminatorLatentInit.zero_grad()
@@ -467,7 +465,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
         # Initial Prediction
         inputInit = torch.cat([imBatch, segBatch], dim=1)
-        x1, x2, x3, x4, x5, xSynth = encoderXInit(inputInit)
+        x1, x2, x3, x4, x5, xSynth = encoderInit(inputInit)
         albedoPred = albedoInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(albedoBatch )
         normalPred = normalInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(normalBatch )
         roughPred = roughInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(roughBatch )
@@ -487,7 +485,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
         inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
-        y1, y2, y3, y4, y5, xReal = encoderYInit(inputRealInit)
+        y1, y2, y3, y4, y5, xReal = encoderInit(inputRealInit)
         # Loss 1 :
         idSynthetic = decoderXInit(x1, x2, x3, x4, x5, xSynth)
         idReal = decoderYInit(y1, y2, y3, y4, y5, xReal)
@@ -505,12 +503,12 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         lossQtr = lossDiscriminator(predTransX, torch.ones(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.ones(predTransY.size()).cuda()) # cross entropy loss...
 
         # Loss 4 : 
-        lossQcyc = lossMSE(decoderXInit(*encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(*encoderXInit(torch.cat((decoderXInit(y1, y2, y3, y4, y5, xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
+        lossQcyc = lossMSE(decoderXInit(*encoderInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth), inputInit[:,3:4,:,:]),dim=1))),inputInit[:,0:3,:,:]) + lossMSE(decoderYInit(*encoderInit(torch.cat((decoderXInit(y1, y2, y3, y4, y5, xReal),inputRealInit[:,3:4,:,:]),dim=1))), inputRealInit[:,0:3,:,:])
 
 
         # Loss 5 :
         
-        x1, x2, x3, x4, x5, xSynthTrc = encoderYInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth),inputInit[:,3:4,:,:]),dim=1))
+        x1, x2, x3, x4, x5, xSynthTrc = encoderInit(torch.cat((decoderYInit(x1, x2, x3, x4, x5, xSynth),inputInit[:,3:4,:,:]),dim=1))
         albedoPredTrc = albedoInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(albedoBatch )
         normalPredTrc = normalInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(normalBatch )
         roughPredTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
@@ -602,8 +600,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         totalErr.backward()
 
 
-        opEncoderXInit.step()
-        opEncoderYInit.step()
+        opEncoderInit.step()
         opDecoderXInit.step()
         opDecoderYInit.step()
         opAlbedoInit.step()
@@ -669,7 +666,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         if j == 1 or j == 1000 or j% 5000 == 0:
             # Generate forward pass on Real Images...
             inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
-            x1, x2, x3, x4, x5, xReal = encoderYInit(inputRealInit)
+            x1, x2, x3, x4, x5, xReal = encoderInit(inputRealInit)
             albedoPredReal = albedoInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(albedoBatch ) #crude hack...
             normalPredReal = normalInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(normalBatch )
             roughPredReal = roughInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(roughBatch )
@@ -718,7 +715,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
             vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
                     '{0}/{1}_imPredReal_{2}.png'.format(opt.experiment, j, 0) )
             
-            x1, x2, x3, x4, x5, xReal = encoderXInit(inputRealInit)
+            x1, x2, x3, x4, x5, xReal = encoderInit(inputRealInit)
             albedoPredReal = albedoInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(albedoBatch ) #crude hack...
             normalPredReal = normalInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(normalBatch )
             roughPredReal = roughInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(roughBatch )

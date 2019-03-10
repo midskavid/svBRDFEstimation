@@ -2,6 +2,7 @@ mask-rcnn/
 Preprocess/
 DATA/
 check_initEnv/
+__pycache__/
 *.zip
 *.pyc
 *.zip
