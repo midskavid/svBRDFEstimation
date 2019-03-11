@@ -43,8 +43,8 @@ parser.add_argument('--lamCyc', type=float, default=1.0, help='weight')
 parser.add_argument('--lamTrc', type=float, default=1.0, help='weight')
 parser.add_argument('--cascadeLevel', type=int, default=0, help='cascade level')
 
-parser.add_argument('--loadModel', action='store_false', help='Load Saved Model')
-parser.add_argument('--modelPath', default='check_initEnv/', help='path to saved model')
+parser.add_argument('--loadModel', action='store_true', help='Load Saved Model')
+parser.add_argument('--modelPath', default='check_initEnv/TrainedModel.pth', help='path to saved model')
 
 opt = parser.parse_args()
 print(opt)
