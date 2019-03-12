@@ -773,6 +773,8 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
             vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
                     '{0}/{1}_imPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
             
+            vutils.save_image( ( (0.5*(imRealBatch + 1))**(1.0/2.2) ).data,
+                    '{0}/{1}_imReal.png'.format(opt.experiment, j) )
             
             for n in range(0, opt.cascadeLevel + 1):
                 vutils.save_image( ( 0.5*(albedoPreds[n] + 1)*segBatch.expand_as(albedoPreds[n]) ).data,
