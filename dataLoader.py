@@ -132,11 +132,12 @@ class BatchLoader(Dataset):
 
         imReal = self.loadImage(self.realImageNames[self.permReal[ind] ], isGama = True)
         segReal = 0.5 * self.loadImage(self.realImageMaskNames[self.permReal[ind] ] ) + 0.5
+        
         #print (segReal.shape)
-        segReal = (segReal[:, :, 0] > 0.50).astype(dtype = np.int)
+        segReal = (segReal[0, :, :] > 0.50).astype(dtype = np.int)
         #segReal = ndimage.binary_erosion(segReal, structure = np.ones( (2, 2) ) ).astype(dtype = np.float32 )
         segReal = segReal[np.newaxis, :, :]
-
+        
 
         batchDict = {'albedo': albedo,
                      'normal': normal,
