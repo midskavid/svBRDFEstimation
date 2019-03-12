@@ -183,6 +183,14 @@ brdfDataset = dataLoader.BatchLoader(opt.dataRoot, imSize = opt.imageSize)
 brdfLoader = DataLoader(brdfDataset, batch_size = opt.batchSize, num_workers = 4, shuffle = False)
 
 j = 0
+# Stores j values for which we are generating graphs of losses
+js = []
+losses = ['totalErr', 'totalErrOrig','lossQz','lossQtrDisc','lossQid','lossQcyc','totalErrTrc']
+# Loss values after the discriminator step
+loss_trends_after_D = {k: [] for k in losses}
+# Loss values after the generator step
+loss_trends_after_G = {k: [] for k in losses}
+
 albedoErrsNpList = np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 normalErrsNpList = np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 roughErrsNpList= np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
@@ -465,6 +473,11 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         opDiscriminatorXInit.step()
         opDiscriminatorYInit.step()
         opDiscriminatorLatentInit.step()
+        if j==1 or j%1000 == 0:
+            for losstype in losses:
+                loss_trends_after_D[losstype].append(globals()[losstype].item())
+                js.append(j)
+                utils.writeNpErrToFile(losstype+'D', globals()[losstype], trainingLog, epoch, j)
 
 
 
@@ -696,8 +709,16 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
             utils.writeNpErrToFile('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
             utils.writeNpErrToFile('envErrs_Accu', np.mean(envErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
 
+        if j==1 or j%1000 == 0:
+            for losstype in losses:
+                loss_trends_after_D[losstype].append(globals()[losstype].item())
+                utils.writeNpErrToFile(losstype+'G', globals()[losstype], trainingLog, epoch, j)
 
         if j == 1 or j == 1000 or j% 5000 == 0:
+            # Save Train Losses
+
+
+
             # Generate forward pass on Real Images...
             inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
             x1, x2, x3, x4, x5, xReal = encoderInit(inputRealInit)
