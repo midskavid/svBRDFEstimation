@@ -7,7 +7,7 @@ import struct
 from torch.utils.data import Dataset
 import os
 import scipy.ndimage as ndimage
-
+import PIL.ExifTags as ExifTags
 
 class BatchLoader(Dataset):
     def __init__(self, dataRoot, imSize = 256, isRandom=True, phase='TRAIN', rseed = None, shapeRange = [0, 500], cascade = None, isPoint=False):
@@ -133,8 +133,8 @@ class BatchLoader(Dataset):
         imReal = self.loadImage(self.realImageNames[self.permReal[ind] ], isGama = True)
         segReal = 0.5 * self.loadImage(self.realImageMaskNames[self.permReal[ind] ] ) + 0.5
         #print (segReal.shape)
-        segReal = (segReal[:, :, 0] > 0.999999).astype(dtype = np.int)
-        segReal = ndimage.binary_erosion(segReal, structure = np.ones( (2, 2) ) ).astype(dtype = np.float32 )
+        segReal = (segReal[:, :, 0] > 0.50).astype(dtype = np.int)
+        #segReal = ndimage.binary_erosion(segReal, structure = np.ones( (2, 2) ) ).astype(dtype = np.float32 )
         segReal = segReal[np.newaxis, :, :]
 
 
@@ -164,7 +164,18 @@ class BatchLoader(Dataset):
             return im
 
         im = Image.open(imName)
-        im = self.imResize(im)
+        try :
+            for orientation in ExifTags.TAGS.keys() :
+                if ExifTags.TAGS[orientation]=='Orientation' : break
+            exif=dict(im._getexif().items())
+            if   exif[orientation] == 3 :
+                im=im.rotate(180, expand=True)
+            elif exif[orientation] == 6 :
+                im=im.rotate(270, expand=True)
+            elif exif[orientation] == 8 :
+                im=im.rotate(90, expand=True)
+        except:
+            pass
         im = np.asarray(im, dtype=np.float32)
         if isGama:
             im = (im / 255.0) ** 2.2
@@ -172,7 +183,7 @@ class BatchLoader(Dataset):
         else:
             im = (im - 127.5) / 127.5
         if len(im.shape) == 2:
-            im = im[:, np.newaxis]
+            im = im[:, :, np.newaxis]
         im = np.transpose(im, [2, 0, 1])
         return im
 
