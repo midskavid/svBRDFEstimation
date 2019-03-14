@@ -11,6 +11,7 @@ import utils
 import dataLoader
 import torch.nn as nn
 from torch.utils.data import DataLoader
+import pickle
 
 parser = argparse.ArgumentParser()
 # The locationi of training set
@@ -19,7 +20,7 @@ parser.add_argument('--dataRoot', default='/datasets/home/13/113/ptayal/CSE291DA
 parser.add_argument('--experiment', default=None, help='the path to store samples and models')
 # The basic training setting
 parser.add_argument('--nepoch', type=int, default=100, help='the number of epochs for training')
-parser.add_argument('--batchSize', type=int, default=2, help='input batch size')
+parser.add_argument('--batchSize', type=int, default=3, help='input batch size')
 parser.add_argument('--imageSize', type=int, default=256, help='the height / width of the input image to network')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--deviceIds', type=int, nargs='+', default=[0], help='the gpus used for training network')
@@ -38,14 +39,15 @@ parser.add_argument('--modelRoot', default= None, help='the root to load the tra
 parser.add_argument('--lamC', type=float, default=1.0, help='weight')
 parser.add_argument('--lamZ', type=float, default=1.0, help='weight')
 parser.add_argument('--lamTr', type=float, default=1.0, help='weight')
-parser.add_argument('--lamId', type=float, default=1.0, help='weight')
-parser.add_argument('--lamCyc', type=float, default=1.0, help='weight')
+parser.add_argument('--lamId', type=float, default=8.0, help='weight')
+parser.add_argument('--lamCyc', type=float, default=4.0, help='weight')
 parser.add_argument('--lamTrc', type=float, default=1.0, help='weight')
 parser.add_argument('--cascadeLevel', type=int, default=0, help='cascade level')
 
 parser.add_argument('--loadModel', action='store_true', help='Load Saved Model')
 parser.add_argument('--modelPath', default='check_initEnv/TrainedModel.pth', help='path to saved model')
 
+parser.add_argument('--batchavgsize', type = int, default = 100, help = 'loss average after how many minibatches')
 opt = parser.parse_args()
 print(opt)
 
@@ -178,11 +180,20 @@ opDiscriminatorYInit = optim.Adam(discriminatorYInit.parameters(), lr=1e-4 * sca
 #####################################
 
 
+
 ####################################
 brdfDataset = dataLoader.BatchLoader(opt.dataRoot, imSize = opt.imageSize)
 brdfLoader = DataLoader(brdfDataset, batch_size = opt.batchSize, num_workers = 4, shuffle = False)
 
 j = 0
+# Stores j values for which we are generating graphs of losses
+js = []
+losses = ['totalErr', 'totalErrOrig','lossQz','lossQtrDisc','lossQid','lossQcyc','totalErrTrc']
+# Loss values after the discriminator step
+loss_trends_after_D = {k: [0] for k in losses}
+# Loss values after the generator step
+loss_trends_after_G = {k: [0] for k in losses}
+
 albedoErrsNpList = np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 normalErrsNpList = np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
 roughErrsNpList= np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
@@ -331,7 +342,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         ########################################################
 
         # Formulate Domain adaptation losses assuming batch/2 are synthetic and remaining real
-        print (imRealBatch.shape, segRealBatch.shape)
+        #print (imRealBatch.shape, segRealBatch.shape)
         inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
         y1, y2, y3, y4, y5, xReal = encoderInit(inputRealInit)
         # Loss 13333333 :
@@ -397,7 +408,7 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
 
         pixelNum = (torch.sum(segBatch ).cpu().data).item()
-        print (pixelNum)
+        #print (pixelNum)
         for m in range(0, len(albedoPreds) ):
             albedoErrs.append( torch.sum( (albedoPreds[m] - albedoBatch)
                     * (albedoPreds[m] - albedoBatch) * segBatch.expand_as(albedoBatch) ) / pixelNum / 3.0 )
@@ -465,7 +476,16 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         opDiscriminatorXInit.step()
         opDiscriminatorYInit.step()
         opDiscriminatorLatentInit.step()
-
+        for losstype in losses:
+            loss_trends_after_D[losstype][-1] += globals()[losstype].item()
+        
+        if j%opt.batchavgsize ==0:
+            for losstype in losses:
+                loss_trends_after_D[losstype][-1]/= opt.batchavgsize
+                loss_trends_after_D[losstype].append(0)
+                js.append(j)
+                utils.writeNpErrToScreen(losstype+'D', [loss_trends_after_D[losstype][-2]], epoch, j)
+        
 
 
         # Now GENERATOR STEP....
@@ -646,19 +666,19 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
 
 
         # Output training error
-        utils.writeErrToScreen('albedo', albedoErrs, epoch, j)
-        utils.writeErrToScreen('normal', normalErrs, epoch, j)
-        utils.writeErrToScreen('rough', roughErrs, epoch, j)
-        utils.writeErrToScreen('depth', depthErrs, epoch, j)
-        utils.writeErrToScreen('globalIllu1', globalIllu1Errs, epoch, j)
-        utils.writeErrToScreen('Env Error', envErrs, epoch, j)
+#         utils.writeErrToScreen('albedo', albedoErrs, epoch, j)
+#         utils.writeErrToScreen('normal', normalErrs, epoch, j)
+#         utils.writeErrToScreen('rough', roughErrs, epoch, j)
+#         utils.writeErrToScreen('depth', depthErrs, epoch, j)
+#         utils.writeErrToScreen('globalIllu1', globalIllu1Errs, epoch, j)
+#         utils.writeErrToScreen('Env Error', envErrs, epoch, j)
 
-        utils.writeErrToFile('albedo', albedoErrs, trainingLog, epoch, j)
-        utils.writeErrToFile('normal', normalErrs, trainingLog, epoch, j)
-        utils.writeErrToFile('rough', roughErrs, trainingLog, epoch, j)
-        utils.writeErrToFile('depth', depthErrs, trainingLog, epoch, j)
-        utils.writeErrToFile('globalIllu1', globalIllu1Errs, trainingLog, epoch, j)
-        utils.writeErrToFile('Env Error', envErrs, trainingLog, epoch, j)
+#         utils.writeErrToFile('albedo', albedoErrs, trainingLog, epoch, j)
+#         utils.writeErrToFile('normal', normalErrs, trainingLog, epoch, j)
+#         utils.writeErrToFile('rough', roughErrs, trainingLog, epoch, j)
+#         utils.writeErrToFile('depth', depthErrs, trainingLog, epoch, j)
+#         utils.writeErrToFile('globalIllu1', globalIllu1Errs, trainingLog, epoch, j)
+#         utils.writeErrToFile('Env Error', envErrs, trainingLog, epoch, j)
 
         albedoErrsNpList = np.concatenate( [albedoErrsNpList, utils.turnErrorIntoNumpy(albedoErrs)], axis=0)
         normalErrsNpList = np.concatenate( [normalErrsNpList, utils.turnErrorIntoNumpy(normalErrs)], axis=0)
@@ -667,37 +687,56 @@ for epoch in list(range(opt.epochId+1, opt.nepoch)):
         globalIllu1ErrsNpList = np.concatenate( [globalIllu1ErrsNpList, utils.turnErrorIntoNumpy(globalIllu1Errs)], axis=0)
         envErrsNpList = np.concatenate( [envErrsNpList, utils.turnErrorIntoNumpy(envErrs)], axis=0)
 
-        if j < 1000:
-            utils.writeNpErrToScreen('albedoAccu', np.mean(albedoErrsNpList[1:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('normalAccu', np.mean(normalErrsNpList[1:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('roughAccu', np.mean(roughErrsNpList[1:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('depthAccu', np.mean(depthErrsNpList[1:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[1:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('envErrs_Accu:', np.mean(envErrsNpList[1:j+1, :], axis=0), epoch, j)
+#         if j < 1000:
+#             utils.writeNpErrToScreen('albedoAccu', np.mean(albedoErrsNpList[1:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('normalAccu', np.mean(normalErrsNpList[1:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('roughAccu', np.mean(roughErrsNpList[1:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('depthAccu', np.mean(depthErrsNpList[1:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[1:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('envErrs_Accu:', np.mean(envErrsNpList[1:j+1, :], axis=0), epoch, j)
 
-            utils.writeNpErrToFile('albedoAccu', np.mean(albedoErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('normalAccu', np.mean(normalErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('roughAccu', np.mean(roughErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('depthAccu', np.mean(depthErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('envErrs_Accu:', np.mean(envErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
-        else:
-            utils.writeNpErrToScreen('albedoAccu', np.mean(albedoErrsNpList[j-999:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('normalAccu', np.mean(normalErrsNpList[j-999:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('roughAccu', np.mean(roughErrsNpList[j-999:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('depthAccu', np.mean(depthErrsNpList[j-999:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[j-999:j+1, :], axis=0), epoch, j)
-            utils.writeNpErrToScreen('envErrs_Accu', np.mean(envErrsNpList[j-999:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToFile('albedoAccu', np.mean(albedoErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('normalAccu', np.mean(normalErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('roughAccu', np.mean(roughErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('depthAccu', np.mean(depthErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('envErrs_Accu:', np.mean(envErrsNpList[1:j+1, :], axis=0), trainingLog, epoch, j)
+#         else:
+#             utils.writeNpErrToScreen('albedoAccu', np.mean(albedoErrsNpList[j-999:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('normalAccu', np.mean(normalErrsNpList[j-999:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('roughAccu', np.mean(roughErrsNpList[j-999:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('depthAccu', np.mean(depthErrsNpList[j-999:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[j-999:j+1, :], axis=0), epoch, j)
+#             utils.writeNpErrToScreen('envErrs_Accu', np.mean(envErrsNpList[j-999:j+1, :], axis=0), epoch, j)
 
-            utils.writeNpErrToFile('albedoAccu', np.mean(albedoErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('normalAccu', np.mean(normalErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('roughAccu', np.mean(roughErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('depthAccu', np.mean(depthErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
-            utils.writeNpErrToFile('envErrs_Accu', np.mean(envErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('albedoAccu', np.mean(albedoErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('normalAccu', np.mean(normalErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('roughAccu', np.mean(roughErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('depthAccu', np.mean(depthErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('globalIllu1Accu', np.mean(globalIllu1ErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
+#             utils.writeNpErrToFile('envErrs_Accu', np.mean(envErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
 
+   
+        for losstype in losses:
+            loss_trends_after_G[losstype][-1] += globals()[losstype].item()
+        
+        if j%opt.batchavgsize ==0 :
+            for losstype in losses:
+                loss_trends_after_G[losstype][-1]/= opt.batchavgsize
+                loss_trends_after_G[losstype].append(0)
+                js.append(j)
+                utils.writeNpErrToScreen(losstype+'G', [loss_trends_after_G[losstype][-2]], epoch, j)
+        
+        if j%1000 ==0:
+            with open('losses_'+str(j)+'_'+str(epoch)+'.pickle', 'wb') as handle:
+                pickle.dump([loss_trends_after_G, loss_trends_after_D, js], handle)
+               
 
         if j == 1 or j == 1000 or j% 5000 == 0:
+            
+
+
+
             # Generate forward pass on Real Images...
             inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
             x1, x2, x3, x4, x5, xReal = encoderInit(inputRealInit)
