@@ -35,7 +35,7 @@ class BatchLoader(Dataset):
         self.segList = [x.replace('albedo', 'seg') for x in self.albedoList]
 
         # Rendered Image
-        self.imPList = [x.replace('albedo', 'imgPoint') for x in self.albedoList]
+        self.imPList = [x.replace('albedo', 'imgPoint+Env') for x in self.albedoList]
         self.imEList = [x.replace('albedo', 'imgEnv') for x in self.albedoList]
 
         # Geometry
