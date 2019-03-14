@@ -20,7 +20,7 @@ parser.add_argument('--dataRoot', default='/datasets/home/13/113/ptayal/CSE291DA
 parser.add_argument('--experiment', default=None, help='the path to store samples and models')
 # The basic training setting
 parser.add_argument('--nepoch', type=int, default=100, help='the number of epochs for training')
-parser.add_argument('--batchSize', type=int, default=3, help='input batch size')
+parser.add_argument('--batchSize', type=int, default=4, help='input batch size')
 parser.add_argument('--imageSize', type=int, default=256, help='the height / width of the input image to network')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--deviceIds', type=int, nargs='+', default=[0], help='the gpus used for training network')
@@ -193,6 +193,7 @@ opDiscriminatorYInit = optim.Adam(discriminatorYInit.parameters(), lr=1e-4 * sca
 brdfDataset = dataLoader.BatchLoader(opt.dataRoot, imSize = opt.imageSize)
 brdfLoader = DataLoader(brdfDataset, batch_size = opt.batchSize, num_workers = 4, shuffle = False)
 
+j=0
 # Stores j values for which we are generating graphs of losses
 js = []
 losses = ['totalErr', 'totalErrOrig','lossQz','lossQtrDisc','lossQid','lossQcyc','totalErrTrc']
@@ -211,7 +212,7 @@ envErrsNpList = np.ones([1, 1+opt.cascadeLevel], dtype = np.float32)
 
 
 lossMSE = torch.nn.MSELoss()
-lossMAE = torch.nn.MAE()
+lossMAE = torch.nn.SmoothL1Loss()
 # lossCEntropy = torch.nn.CrossEntropyLoss()
 lossDiscriminator = nn.BCELoss()
 
@@ -257,7 +258,7 @@ if opt.loadModel :
 
 while epoch < opt.nepoch:
     trainingLog = open('{0}/trainingLog_{1}.txt'.format(opt.experiment, epoch), 'w')
-    print '################# EPOCH : ', epoch,'#####################'
+    print('################# EPOCH : ', epoch,'#####################')
     for i, dataBatch in enumerate(brdfLoader):
         j += 1
         # Load data from cpu to gpu
@@ -324,8 +325,6 @@ while epoch < opt.nepoch:
         depthPreds = []
         SHPreds = []
         globalIllu1s = []
-        globalIllu2s = []
-        globalIllu3s = []
         renderedEnvs = []
         errors = []
 
@@ -354,7 +353,7 @@ while epoch < opt.nepoch:
         SHPreds.append(SHPred)
 
         globalIllu1 = renderLayer.forward(albedoPred, normalPred, roughPred, depthPred, segBatch)
-        renderedEnv = renderLayer.forward(albedoPred, normalPred, roughPred, SHPred, segBatch)
+        renderedEnv = renderLayer.forwardEnv(albedoPred, normalPred, roughPred, SHPred, segBatch)
         renderedImg = renderedEnv + globalIllu1  
         
         albedoPreds.append(albedoPred)
@@ -413,9 +412,9 @@ while epoch < opt.nepoch:
         roughPredsTrc = roughInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(roughBatch )
         depthPredsTrc = depthInit(x1, x2, x3, x4, x5, xSynthTrc) * segBatch.expand_as(depthBatch )
         SHPredsTrc = envInit(xSynthTrc)
-        globalIllu1sTrc = renderLayer.forward(albedoPredsTrc, normalPredsTrc,
+        globalIllu1Trc = renderLayer.forward(albedoPredsTrc, normalPredsTrc,
                 roughPredsTrc, depthPredsTrc, segBatch)
-        renderedEnvTrc = renderLayer.forward(albedoPredsTrc, normalPredsTrc,
+        renderedEnvTrc = renderLayer.forwardEnv(albedoPredsTrc, normalPredsTrc,
                 roughPredsTrc, SHPredsTrc, segBatch)
 
         renderedImgTrc = renderedEnvTrc + globalIllu1Trc
@@ -427,7 +426,7 @@ while epoch < opt.nepoch:
         roughErrs = []
         depthErrs = []
         globalIllu1Errs = []
-        renderedEnvsErrs = []
+        renderedEnvErrs = []
         envErrs = []
 
         albedoErrsTrc = []
@@ -468,14 +467,14 @@ while epoch < opt.nepoch:
         for m in range(0, len(globalIllu1s) ):
             globalIllu1Errs.append( torch.sum( (globalIllu1s[m] - globalIllu1Gt)
                     * (globalIllu1s[m] - globalIllu1Gt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
-            globalIllu1ErrsTrc.append( torch.sum( (globalIllu1sTrc[m] - globalIllu1Gt)
-                    * (globalIllu1sTrc[m] - globalIllu1Gt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
+            globalIllu1ErrsTrc.append( torch.sum( (globalIllu1Trc[m] - globalIllu1Gt)
+                    * (globalIllu1Trc[m] - globalIllu1Gt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
 
         for m in range(0, len(renderedEnvs) ):
             renderedEnvErrs.append( torch.sum( (renderedEnvs[m] - renderedEnvGt)
                     * (renderedEnvs[m] - renderedEnvGt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
-            renderedEnvErrsTrc.append( torch.sum( (renderedEnvsTrc[m] - renderedEnvGt)
-                    * (renderedEnvsTrc[m] - renderedEnvGt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
+            renderedEnvErrsTrc.append( torch.sum( (renderedEnvTrc[m] - renderedEnvGt)
+                    * (renderedEnvTrc[m] - renderedEnvGt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
 
 
         for m in range(0, len(SHPreds) ):
@@ -580,7 +579,7 @@ while epoch < opt.nepoch:
         SHPreds.append(SHPred)
 
         globalIllu1 = renderLayer.forward(albedoPred, normalPred, roughPred, depthPred, segBatch)
-        renderedEnv = renderLayer.forward(albedoPred, normalPred, roughPred, SHPred, segBatch)
+        renderedEnv = renderLayer.forwardEnv(albedoPred, normalPred, roughPred, SHPred, segBatch)
         renderedImg = renderedEnv + globalIllu1  
         
         albedoPreds.append(albedoPred)
@@ -633,7 +632,7 @@ while epoch < opt.nepoch:
         SHPredsTrc = envInit(xSynthTrc)
         globalIllu1sTrc = renderLayer.forward(albedoPredsTrc, normalPredsTrc,
                 roughPredsTrc, depthPredsTrc, segBatch)
-        renderedEnvTrc = renderLayer.forward(albedoPredsTrc, normalPredsTrc,
+        renderedEnvTrc = renderLayer.forwardEnv(albedoPredsTrc, normalPredsTrc,
                 roughPredsTrc, SHPredsTrc, segBatch)
 
         renderedImgTrc = renderedEnvTrc + globalIllu1Trc
@@ -692,8 +691,8 @@ while epoch < opt.nepoch:
         for m in range(0, len(renderedEnvs) ):
             renderedEnvErrs.append( torch.sum( (renderedEnvs[m] - renderedEnvGt)
                     * (renderedEnvs[m] - renderedEnvGt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
-            renderedEnvErrsTrc.append( torch.sum( (renderedEnvsTrc[m] - renderedEnvGt)
-                    * (renderedEnvsTrc[m] - renderedEnvGt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
+            renderedEnvErrsTrc.append( torch.sum( (renderedEnvTrc[m] - renderedEnvGt)
+                    * (renderedEnvTrc[m] - renderedEnvGt) * segBatch.expand_as(imBatch) ) / pixelNum / 3.0 )
 
 
         for m in range(0, len(SHPreds) ):
@@ -801,7 +800,7 @@ while epoch < opt.nepoch:
         for losstype in losses:
             loss_trends_after_G[losstype][-1] += globals()[losstype].item()
 
-        if j%opt.batchavgsize ==0 :
+        if j==1 or j%opt.batchavgsize ==0 :
             for losstype in losses:
                 loss_trends_after_G[losstype][-1]/= opt.batchavgsize
                 loss_trends_after_G[losstype].append(0)
@@ -813,10 +812,10 @@ while epoch < opt.nepoch:
                 pickle.dump([loss_trends_after_G, loss_trends_after_D, js], handle)
 
 
-        if j==1 or j%1000 == 0:
-            for losstype in losses:
-                loss_trends_after_D[losstype].append(globals()[losstype].item())
-                utils.writeNpErrToFile(losstype+'G', globals()[losstype], trainingLog, epoch, j)
+#         if j==1 or j%1000 == 0:
+#             for losstype in losses:
+#                 loss_trends_after_D[losstype].append(globals()[losstype].item())
+#                 utils.writeNpErrToFile(losstype+'G', globals()[losstype], trainingLog, epoch, j)
 
 
 
@@ -831,6 +830,8 @@ while epoch < opt.nepoch:
             SHPredReal = envInit(xReal)
             globalIllu1sReal = renderLayer.forward(albedoPredReal, normalPredReal,
                     roughPredReal, depthPredReal, segRealBatch)
+            renderedEnvReal = renderLayer.forwardEnv(albedoPredReal, normalPredReal, roughPredReal, SHPredReal, segRealBatch)
+            renderedImgReal = renderedEnvReal + globalIllu1sReal  
             
             
             
@@ -869,6 +870,8 @@ while epoch < opt.nepoch:
 
             vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
                     '{0}/{1}_imPredReal_{2}.png'.format(opt.experiment, j, 0) )
+            vutils.save_image( ( ( renderedImgReal * segRealBatch.expand_as(renderedImgReal) )**(1.0/2.2) ).data,
+                    '{0}/{1}_imENVPredReal_{2}.png'.format(opt.experiment, j, 0) )
             
             x1, x2, x3, x4, x5, xReal = encoderXInit(inputRealInit)
             albedoPredReal = albedoInit(x1, x2, x3, x4, x5, xReal) * segRealBatch.expand_as(albedoBatch ) #crude hack...
@@ -878,7 +881,10 @@ while epoch < opt.nepoch:
             SHPredReal = envInit(xReal)
             globalIllu1sReal = renderLayer.forward(albedoPredReal, normalPredReal,
                     roughPredReal, depthPredReal, segRealBatch)
-
+            renderedEnvReal = renderLayer.forwardEnv(albedoPredReal, normalPredReal, roughPredReal, SHPredReal, segRealBatch)
+            renderedImgReal = renderedEnvReal + globalIllu1sReal  
+            
+ 
             vutils.save_image( ( 0.5*(albedoPredReal + 1)*segRealBatch.expand_as(albedoPredReal) ).data,
                     '{0}/{1}_albedoPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
             vutils.save_image( ( 0.5*(normalPredReal + 1)*segRealBatch.expand_as(normalPredReal) ).data,
@@ -893,6 +899,8 @@ while epoch < opt.nepoch:
 
             vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
                     '{0}/{1}_imPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
+            vutils.save_image( ( ( renderedImgReal * segRealBatch.expand_as(renderedImgReal) )**(1.0/2.2) ).data,
+                    '{0}/{1}_imENVPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
             
             vutils.save_image( ( (0.5*(imRealBatch + 1))**(1.0/2.2) ).data,
                     '{0}/{1}_imReal.png'.format(opt.experiment, j) )
