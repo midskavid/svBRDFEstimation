@@ -283,8 +283,8 @@ while epoch < opt.nepoch:
         depthBatch.data.copy_(depth_cpu )
 
         # Load the image from cpu to gpu
-        # im_cpu = (dataBatch['imP'] + dataBatch['imE'] + 1) * seg_cpu.expand_as(normal_cpu)# why is this added??? what happens to the range???
-        im_cpu = (dataBatch['imP']) * seg_cpu.expand_as(normal_cpu)
+        im_cpu = (dataBatch['imP'] + dataBatch['imE'] + 1) * seg_cpu.expand_as(normal_cpu)# why is this added??? what happens to the range???
+        # im_cpu = (dataBatch['imP']) * seg_cpu.expand_as(normal_cpu)
         imBatch.data.resize_(im_cpu.shape )
         imBatch.data.copy_(im_cpu )
         imReal_cpu = dataBatch['realImage']
@@ -657,7 +657,7 @@ while epoch < opt.nepoch:
 
 
         pixelNum = (torch.sum(segBatch ).cpu().data).item()
-        print (pixelNum)
+        # print (pixelNum)
         for m in range(0, len(albedoPreds) ):
             albedoErrs.append( torch.sum( (albedoPreds[m] - albedoBatch)
                     * (albedoPreds[m] - albedoBatch) * segBatch.expand_as(albedoBatch) ) / pixelNum / 3.0 )
@@ -819,7 +819,7 @@ while epoch < opt.nepoch:
 
 
 
-        if j == 1 or j == 1000 or j% 5000 == 0:
+        if j == 1 or j == 100 or j % 1000 == 0:
             # Generate forward pass on Real Images...
             inputRealInit = torch.cat([imRealBatch, segRealBatch], dim=1)
             x1, x2, x3, x4, x5, xReal = encoderYInit(inputRealInit)
@@ -848,7 +848,7 @@ while epoch < opt.nepoch:
             vutils.save_image( ( depthOut*segBatch.expand_as(depthBatch) ).data,
                     '{0}/{1}_depthGt.png'.format(opt.experiment, j) )
 
-            vutils.save_image( ( (0.5*(imBatch + 1)*segBatch.expand_as(imBatch))**(1.0/2.2) ).data,
+            vutils.save_image( ( (0.5*(imBatch + 1)*segBatch.expand_as(imBatch))).data,
                     '{0}/{1}_im.png'.format(opt.experiment, j) )
 
             utils.visualizeSH('{0}/{1}_gtSH.png'.format(opt.experiment, j),
@@ -868,9 +868,9 @@ while epoch < opt.nepoch:
             vutils.save_image( ( depthOut * segRealBatch.expand_as(depthPredReal) ).data,
                     '{0}/{1}_depthPredReal_{2}.png'.format(opt.experiment, j, 0) )
 
-            vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
+            vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) ) ).data,
                     '{0}/{1}_imPredReal_{2}.png'.format(opt.experiment, j, 0) )
-            vutils.save_image( ( ( renderedImgReal * segRealBatch.expand_as(renderedImgReal) )**(1.0/2.2) ).data,
+            vutils.save_image( ( ( renderedImgReal * segRealBatch.expand_as(renderedImgReal) ) ).data,
                     '{0}/{1}_imENVPredReal_{2}.png'.format(opt.experiment, j, 0) )
             
             x1, x2, x3, x4, x5, xReal = encoderXInit(inputRealInit)
@@ -897,12 +897,12 @@ while epoch < opt.nepoch:
             vutils.save_image( ( depthOut * segRealBatch.expand_as(depthPredReal) ).data,
                     '{0}/{1}_depthPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
 
-            vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )**(1.0/2.2) ).data,
+            vutils.save_image( ( ( globalIllu1sReal * segRealBatch.expand_as(globalIllu1sReal) )).data,
                     '{0}/{1}_imPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
-            vutils.save_image( ( ( renderedImgReal * segRealBatch.expand_as(renderedImgReal) )**(1.0/2.2) ).data,
+            vutils.save_image( ( ( renderedImgReal * segRealBatch.expand_as(renderedImgReal) ) ).data,
                     '{0}/{1}_imENVPredRealXD_{2}.png'.format(opt.experiment, j, 0) )
             
-            vutils.save_image( ( (0.5*(imRealBatch + 1))**(1.0/2.2) ).data,
+            vutils.save_image( ( (0.5*(imRealBatch + 1)) ).data,
                     '{0}/{1}_imReal.png'.format(opt.experiment, j) )
 
             for n in range(0, opt.cascadeLevel + 1):
@@ -918,7 +918,7 @@ while epoch < opt.nepoch:
                 vutils.save_image( ( depthOut * segBatch.expand_as(depthPreds[n]) ).data,
                         '{0}/{1}_depthPred_{2}.png'.format(opt.experiment, j, n) )
 
-                vutils.save_image( ( ( globalIllu1s[n] * segBatch.expand_as(imBatch) )**(1.0/2.2) ).data,
+                vutils.save_image( ( ( globalIllu1s[n] * segBatch.expand_as(imBatch) )).data,
                         '{0}/{1}_imPred_{2}.png'.format(opt.experiment, j, n) )                
                 
                 utils.visualizeSH('{0}/{1}_predSH.png'.format(opt.experiment, j),

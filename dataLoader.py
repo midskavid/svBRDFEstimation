@@ -35,7 +35,7 @@ class BatchLoader(Dataset):
         self.segList = [x.replace('albedo', 'seg') for x in self.albedoList]
 
         # Rendered Image
-        self.imPList = [x.replace('albedo', 'imgPoint+Env') for x in self.albedoList]
+        self.imPList = [x.replace('albedo', 'imgPoint') for x in self.albedoList]
         self.imEList = [x.replace('albedo', 'imgEnv') for x in self.albedoList]
 
         # Geometry
@@ -89,9 +89,9 @@ class BatchLoader(Dataset):
         rough = (rough * seg)
 
         # Read rendered images
-        imP = self.loadImage(self.imPList[self.perm[ind] ], isGama = True)
+        imP = self.loadImage(self.imPList[self.perm[ind] ], isGama = False)
         imP = imP * seg
-        imE = self.loadImage(self.imEList[self.perm[ind] ], isGama = True)
+        imE = self.loadImage(self.imEList[self.perm[ind] ], isGama = False)
         imEbg = imE.copy()
         imE = imE * seg
 
@@ -130,7 +130,7 @@ class BatchLoader(Dataset):
         imP = np.clip(imP, -1, 1)
         imE = np.clip(imE, -1, 1)
 
-        imReal = self.loadImage(self.realImageNames[self.permReal[ind] ], isGama = True)
+        imReal = self.loadImage(self.realImageNames[self.permReal[ind] ], isGama = False)
         segReal = 0.5 * self.loadImage(self.realImageMaskNames[self.permReal[ind] ] ) + 0.5
         
         #print (segReal.shape)
