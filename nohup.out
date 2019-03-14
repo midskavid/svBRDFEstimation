@@ -1,8 +1,0 @@
-mkdir: cannot create directory 'check_initEnv': File exists
-Namespace(albedoWeight=1.0, batchSize=2, cascadeLevel=0, cuda=True, dataRoot='DATA/', depthWeight=0.5, deviceIds=[0], envWeight=0.01, epochId=-1, experiment=None, globalIllu1=1.0, imageSize=256, isRefine=False, lamC=1.0, lamCyc=1.0, lamId=1.0, lamTr=1.0, lamTrc=1.0, lamZ=1.0, modelRoot=None, nepoch=400, normalWeight=1.0, roughWeight=0.5)
-Random Seed:  0
-431 1980
-mkdir: cannot create directory 'check_initEnv': File exists
-Namespace(albedoWeight=1.0, batchSize=2, cascadeLevel=0, cuda=True, dataRoot='DATA/', depthWeight=0.5, deviceIds=[0], envWeight=0.01, epochId=-1, experiment=None, globalIllu1=1.0, imageSize=256, isRefine=False, lamC=1.0, lamCyc=1.0, lamId=1.0, lamTr=1.0, lamTrc=1.0, lamZ=1.0, modelRoot=None, nepoch=400, normalWeight=1.0, roughWeight=0.5)
-Random Seed:  0
-431 1980
