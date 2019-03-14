@@ -196,11 +196,13 @@ brdfLoader = DataLoader(brdfDataset, batch_size = opt.batchSize, num_workers = 4
 j=0
 # Stores j values for which we are generating graphs of losses
 js = []
-losses = ['totalErr', 'totalErrOrig','lossQz','lossQtrDisc','lossQid','lossQcyc','totalErrTrc']
+lossesG = ['totalErr', 'totalErrOrig','lossQz','lossQtr','lossQid','lossQcyc','totalErrTrc']
+lossesD = ['totalErr', 'totalErrOrig','lossQz','lossQtrDisc','lossQid','lossQcyc','totalErrTrc']
+
 # Loss values after the discriminator step
-loss_trends_after_D = {k: [0] for k in losses}
+loss_trends_after_D = {k: [0] for k in lossesD}
 # Loss values after the generator step
-loss_trends_after_G = {k: [0] for k in losses}
+loss_trends_after_G = {k: [0] for k in lossesG}
 
 
 albedoErrsNpList = np.ones( [1, 1+opt.cascadeLevel], dtype = np.float32 )
@@ -504,7 +506,7 @@ while epoch < opt.nepoch:
                 + deptW * depthErrSum + g1W * globalIllu1ErrSum + eW * envErrSum + rd*renderedEnvErrSum
 
         totalErrTrc = albeW * albedoErrSumTrc + normW * normalErrSumTrc + rougW *roughErrSumTrc \
-                + deptW * depthErrSumTrc + g1W * globalIllu1ErrSumTrc + eW * envErrSumTrc + rd*renderedEnvErrSum
+                + deptW * depthErrSumTrc + g1W * globalIllu1ErrSumTrc + eW * envErrSumTrc + rd*renderedEnvErrSumTrc
 
 
         ########################################################
@@ -519,11 +521,11 @@ while epoch < opt.nepoch:
         opDiscriminatorYInit.step()
         opDiscriminatorLatentInit.step()
 
-        for losstype in losses:
+        for losstype in lossesD:
             loss_trends_after_D[losstype][-1] += globals()[losstype].item()
 
         if j%opt.batchavgsize ==0:
-            for losstype in losses:
+            for losstype in lossesD:
                 loss_trends_after_D[losstype][-1]/= opt.batchavgsize
                 loss_trends_after_D[losstype].append(0)
                 js.append(j)
@@ -722,7 +724,7 @@ while epoch < opt.nepoch:
                 + deptW * depthErrSum + g1W * globalIllu1ErrSum + eW * envErrSum + rd*renderedEnvErrSum
 
         totalErrTrc = albeW * albedoErrSumTrc + normW * normalErrSumTrc + rougW *roughErrSumTrc \
-                + deptW * depthErrSumTrc + g1W * globalIllu1ErrSumTrc + eW * envErrSumTrc + rd*renderedEnvErrSum
+                + deptW * depthErrSumTrc + g1W * globalIllu1ErrSumTrc + eW * envErrSumTrc + rd*renderedEnvErrSumTrc
 
 
         ########################################################
@@ -797,11 +799,11 @@ while epoch < opt.nepoch:
         #     utils.writeNpErrToFile('envErrs_Accu', np.mean(envErrsNpList[j-999:j+1, :], axis=0), trainingLog, epoch, j)
 
 
-        for losstype in losses:
+        for losstype in lossesG:
             loss_trends_after_G[losstype][-1] += globals()[losstype].item()
 
         if j==1 or j%opt.batchavgsize ==0 :
-            for losstype in losses:
+            for losstype in lossesG:
                 loss_trends_after_G[losstype][-1]/= opt.batchavgsize
                 loss_trends_after_G[losstype].append(0)
                 js.append(j)
