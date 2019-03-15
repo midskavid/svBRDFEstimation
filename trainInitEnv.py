@@ -351,6 +351,9 @@ while epoch < opt.nepoch:
         normalPred = normalInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(normalBatch )
         roughPred = roughInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(roughBatch )
         depthPred = depthInit(x1, x2, x3, x4, x5, xSynth) * segBatch.expand_as(depthBatch )
+#         print ('###############START################')
+#         print(np.where(np.isnan(depthPred.data.cpu().numpy())))
+#         print(np.where(np.isnan(depthBatch.data.cpu().numpy())))
         SHPred = envInit(xSynth)
         SHPreds.append(SHPred)
 
@@ -510,8 +513,6 @@ while epoch < opt.nepoch:
 
 
         ########################################################
-
-
 
         totalErr = lamC*totalErrOrig + lamZ*lossQz + lamTr*lossQtrDisc + lamId*lossQid + lamCyc*lossQcyc + lamTrc*totalErrTrc
         totalErr.backward(retain_graph=True)
