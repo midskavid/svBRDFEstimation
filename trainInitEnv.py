@@ -397,6 +397,7 @@ while epoch < opt.nepoch:
         # Loss 3 : 
         predTransX = discriminatorYInit(decoderYInit(x1, x2, x3, x4, x5, xSynth))
         predTransY = discriminatorXInit(decoderXInit(y1, y2, y3, y4, y5, xReal))
+        accDQtr = len(np.where(predTransX.data.cpu().numpy() == 0)) + len(np.where(predTransY.data.cpu().numpy() == 0))
         lossQtr = lossDiscriminator(predTransX, torch.zeros(predTransX.size()).cuda()) + lossDiscriminator(predTransY, torch.zeros(predTransY.size()).cuda()) # cross entropy loss...
 
         # [kavidaya] Also, for training these descriminators, we would have to pass in the real images too...
@@ -518,8 +519,9 @@ while epoch < opt.nepoch:
         totalErr.backward(retain_graph=True)
 
         # Update the network parameter
-        opDiscriminatorXInit.step()
-        opDiscriminatorYInit.step()
+        if accDQtr < opt.batchSize // 2 :
+            opDiscriminatorXInit.step()
+            opDiscriminatorYInit.step()
         opDiscriminatorLatentInit.step()
 
         for losstype in lossesD:
