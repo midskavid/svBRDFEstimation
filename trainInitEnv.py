@@ -20,7 +20,7 @@ parser.add_argument('--dataRoot', default='/datasets/home/13/113/ptayal/CSE291DA
 parser.add_argument('--experiment', default=None, help='the path to store samples and models')
 # The basic training setting
 parser.add_argument('--nepoch', type=int, default=100, help='the number of epochs for training')
-parser.add_argument('--batchSize', type=int, default=4, help='input batch size')
+parser.add_argument('--batchSize', type=int, default=3, help='input batch size')
 parser.add_argument('--imageSize', type=int, default=256, help='the height / width of the input image to network')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--deviceIds', type=int, nargs='+', default=[0], help='the gpus used for training network')

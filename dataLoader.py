@@ -109,26 +109,28 @@ class BatchLoader(Dataset):
                 depth = depth.transpose([2, 0, 1] )
                 depth = depth * seg
         nameD = self.depthList[self.perm[ind]]
-        while len(np.where(np.isnan(depth))[0]) :
-            print ('###############NAN MILA##################')
-            names = nameD.split('_depth')
-            l = list(names[0])
-            l[-1] = str((int(names[0][-1]) + 1)%4)
-            names[0] = ''.join(l)
-            nameD = names[0]+'_depth'+names[1]
-            with open(nameD, 'rb') as f:
-                byte = f.read()
-                if len(byte) == 256 * 256 * 3 * 4:
-                    depth = np.array(struct.unpack(str(256*256*3)+'f', byte), dtype=np.float32)
-                    depth = depth.reshape([256, 256, 3])[:, :, 0:1]
-                    depth = depth.transpose([2, 0, 1] )
-                    depth = depth * seg
-                elif len(byte) == 512 * 512 * 3 * 4:
-                    depth = np.array(struct.unpack(str(512*512*3)+'f', byte), dtype=np.float32)
-                    depth = depth.reshape([512, 512, 3])[:, :, 0:1]
-                    depth = depth.transpose([2, 0, 1] )
-                    depth = depth * seg
-             
+        try:
+            while len(np.where(np.isnan(depth))[0]) :
+                print ('###############NAN MILA##################')
+                names = nameD.split('_depth')
+                l = list(names[0])
+                l[-1] = str((int(names[0][-1]) + 1)%4)
+                names[0] = ''.join(l)
+                nameD = names[0]+'_depth'+names[1]
+                with open(nameD, 'rb') as f:
+                    byte = f.read()
+                    if len(byte) == 256 * 256 * 3 * 4:
+                        depth = np.array(struct.unpack(str(256*256*3)+'f', byte), dtype=np.float32)
+                        depth = depth.reshape([256, 256, 3])[:, :, 0:1]
+                        depth = depth.transpose([2, 0, 1] )
+                        depth = depth * seg
+                    elif len(byte) == 512 * 512 * 3 * 4:
+                        depth = np.array(struct.unpack(str(512*512*3)+'f', byte), dtype=np.float32)
+                        depth = depth.reshape([512, 512, 3])[:, :, 0:1]
+                        depth = depth.transpose([2, 0, 1] )
+                        depth = depth * seg
+        except :
+            depth = 1.14*np.ones((1,256,256), dtype=np.float32)
 
         if not os.path.isfile(self.SHList[self.perm[ind] ] ):
             #print('Fail to load {0}'.format(self.SHList[self.perm[ind] ] ) )
@@ -198,6 +200,7 @@ class BatchLoader(Dataset):
                 im=im.rotate(90, expand=True)
         except:
             pass
+        im = self.imResize(im)
         im = np.asarray(im, dtype=np.float32)
         if isGama:
             im = (im / 255.0) ** 2.2
